@@ -19,18 +19,30 @@ namespace ThermoRawFileParserTest
             var tempFilePath = Path.GetTempPath();
 
             var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"small.RAW");
-            var parseInput = new ParseInput(testRawFile, tempFilePath, OutputFormat.MGF, false, MetadataFormat.NONE,
-                null, null, null, null, false);
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, null, OutputFormat.MGF);
 
             RawFileParser.Parse(parseInput);
 
-            // Do this for the mzLib library issue
-            var tempFileName = Path.GetTempPath() + "elements.dat";
-            Loaders.LoadElements(tempFileName);
-
             var mgfData = Mgf.LoadAllStaticData(Path.Combine(tempFilePath, "small.mgf"));
             Assert.AreEqual(34, mgfData.NumSpectra);
-            Assert.IsEmpty(mgfData.GetMS1Scans());
+        }
+
+        [Test]
+        public void TestFolderMgfs()
+        {
+            // Get temp path for writing the test MGF
+            var tempFilePath = Path.GetTempPath();
+
+            var testRawFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"TestFolderMgfs");
+            var parseInput = new ParseInput(null, testRawFolder, tempFilePath, null, OutputFormat.MGF);
+
+            RawFileParser.Parse(parseInput);
+
+            var mgfData = Mgf.LoadAllStaticData(Path.Combine(tempFilePath, "small1.mgf"));
+            Assert.AreEqual(34, mgfData.NumSpectra);
+
+            var mgfData2 = Mgf.LoadAllStaticData(Path.Combine(tempFilePath, "small2.mgf"));
+            Assert.AreEqual(34, mgfData2.NumSpectra);
         }
 
         [Test]
@@ -40,8 +52,7 @@ namespace ThermoRawFileParserTest
             var tempFilePath = Path.GetTempPath();
 
             var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"small.RAW");
-            var parseInput = new ParseInput(testRawFile, tempFilePath, OutputFormat.MzML, false, MetadataFormat.NONE,
-                null, null, null, null, false);
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, null, OutputFormat.MzML);
 
             RawFileParser.Parse(parseInput);
 
@@ -66,9 +77,7 @@ namespace ThermoRawFileParserTest
             Console.WriteLine(tempFilePath);
 
             var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"small.RAW");
-            var parseInput = new ParseInput(testRawFile, tempFilePath, OutputFormat.IndexMzML, false,
-                MetadataFormat.NONE,
-                null, null, null, null, false);
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, null, OutputFormat.IndexMzML);
 
             RawFileParser.Parse(parseInput);
 

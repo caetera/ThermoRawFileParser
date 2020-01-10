@@ -13,6 +13,9 @@ namespace ThermoRawFileParser.Writer
         private static readonly ILog Log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+        private const string PositivePolarity = "+";
+        private const string NegativePolarity = "-";
+
         // Precursor scan number for reference in the precursor element of an MS2 spectrum
         private int _precursorScanNumber;
 
@@ -26,8 +29,24 @@ namespace ThermoRawFileParser.Writer
             ConfigureWriter(".mgf");
             using (Writer)
             {
+                Log.Info("Processing " + (lastScanNumber - firstScanNumber + 1) + " scans");
+
+                var lastScanProgress = 0;
                 for (var scanNumber = firstScanNumber; scanNumber <= lastScanNumber; scanNumber++)
                 {
+                    if (ParseInput.LogFormat == LogFormat.DEFAULT)
+                    {
+                        var scanProgress = (int) ((double) scanNumber / (lastScanNumber - firstScanNumber + 1) * 100);
+                        if (scanProgress % ProgressPercentageStep == 0)
+                        {
+                            if (scanProgress != lastScanProgress)
+                            {
+                                Console.Write("" + scanProgress + "% ");
+                                lastScanProgress = scanProgress;
+                            }
+                        }
+                    }
+
                     // Get each scan from the RAW file
                     var scan = Scan.FromFile(rawFile, scanNumber);
 
@@ -42,7 +61,6 @@ namespace ThermoRawFileParser.Writer
                     var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
 
                     IReaction reaction = null;
-
                     switch (scanFilter.MSOrder)
                     {
                         case MSOrderType.Ms:
@@ -80,30 +98,54 @@ namespace ThermoRawFileParser.Writer
                             Writer.WriteLine(
                                 $"RTINSECONDS={(time * 60).ToString(CultureInfo.InvariantCulture)}");
 
-                            if (reaction != null)
-                            {
-                                var precursorMass = reaction.PrecursorMass;
-                                Writer.WriteLine("PEPMASS=" +
-                                                 precursorMass.ToString("0.0000000",
-                                                     CultureInfo.InvariantCulture));
-                                //var precursorIntensity = 0.0;
-                                //GetPrecursorIntensity(rawFile, _precursorScanNumber, precursorMass);
-                                //Writer.WriteLine(precursorIntensity != null
-                                //    ? $"PEPMASS={precursorMass:F7} {precursorIntensity}"
-                                //    : $"PEPMASS={precursorMass:F7}");                                    
-                            }
-
                             // trailer extra data list
                             var trailerData = rawFile.GetTrailerExtraInformation(scanNumber);
+                            int? charge = null;
+                            double? monoisotopicMz = null;
+                            double? isolationWidth = null;
                             for (var i = 0; i < trailerData.Length; i++)
                             {
                                 if (trailerData.Labels[i] == "Charge State:")
                                 {
                                     if (Convert.ToInt32(trailerData.Values[i]) > 0)
                                     {
-                                        Writer.WriteLine($"CHARGE={trailerData.Values[i]}+");
+                                        charge = Convert.ToInt32(trailerData.Values[i]);
                                     }
                                 }
+
+                                if (trailerData.Labels[i] == "Monoisotopic M/Z:")
+                                {
+                                    monoisotopicMz = double.Parse(trailerData.Values[i], NumberStyles.Any,
+                                        CultureInfo.CurrentCulture);
+                                }
+
+                                if (trailerData.Labels[i] == "MS" + (int) scanFilter.MSOrder + " Isolation Width:")
+                                {
+                                    isolationWidth = double.Parse(trailerData.Values[i], NumberStyles.Any,
+                                        CultureInfo.CurrentCulture);
+                                }
+                            }
+
+                            if (reaction != null)
+                            {
+                                var selectedIonMz =
+                                    CalculateSelectedIonMz(reaction, monoisotopicMz, isolationWidth);
+
+                                Writer.WriteLine("PEPMASS=" +
+                                                 selectedIonMz.ToString(CultureInfo.InvariantCulture));
+                            }
+
+                            // charge
+                            if (charge != null)
+                            {
+                                // Scan polarity            
+                                var polarity = PositivePolarity;
+                                if (scanFilter.Polarity == PolarityType.Negative)
+                                {
+                                    polarity = NegativePolarity;
+                                }
+
+                                Writer.WriteLine($"CHARGE={charge}{polarity}");
                             }
 
                             // write the filter string
@@ -123,7 +165,7 @@ namespace ThermoRawFileParser.Writer
                                             centroidStream.Masses[i].ToString("0.0000000",
                                                 CultureInfo.InvariantCulture)
                                             + " "
-                                            + centroidStream.Intensities[i].ToString("0.0000000",
+                                            + centroidStream.Intensities[i].ToString("0.0000000000",
                                                 CultureInfo.InvariantCulture));
                                     }
                                 }
@@ -150,8 +192,15 @@ namespace ThermoRawFileParser.Writer
 
                             Writer.WriteLine("END IONS");
 
+                            Log.Debug("Spectrum written to file -- SCAN " + scanNumber);
+
                             break;
                     }
+                }
+
+                if (ParseInput.LogFormat == LogFormat.DEFAULT)
+                {
+                    Console.WriteLine();
                 }
             }
         }

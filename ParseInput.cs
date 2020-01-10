@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using ThermoRawFileParser.Writer;
 
 namespace ThermoRawFileParser
@@ -8,7 +9,27 @@ namespace ThermoRawFileParser
         /// <summary>
         /// The RAW file path.
         /// </summary>
-        public string RawFilePath { get; }
+        private string rawFilePath;
+
+        /// <summary>
+        /// The RAW folder path.
+        /// </summary>
+        public string RawDirectoryPath { get; }
+
+        public string RawFilePath
+        {
+            get => rawFilePath;
+            set
+            {
+                rawFilePath = value;
+                if (value != null)
+                {
+                    RawFileNameWithoutExtension = Path.GetFileNameWithoutExtension(value);
+                    var splittedPath = value.Split('/');
+                    rawFileName = splittedPath[splittedPath.Length - 1];
+                }
+            }
+        }
 
         /// <summary>
         /// The output directory.
@@ -16,14 +37,14 @@ namespace ThermoRawFileParser
         public string OutputDirectory { get; }
 
         /// <summary>
+        /// The output file.
+        /// </summary>>
+        public string OutputFile { get; }
+
+        /// <summary>
         /// The output format.
         /// </summary>
         public OutputFormat OutputFormat { get; }
-
-        /// <summary>
-        /// Gzip the output file.
-        /// </summary>
-        public bool Gzip { get; }
 
         /// <summary>
         /// Output the metadata.
@@ -31,14 +52,22 @@ namespace ThermoRawFileParser
         public MetadataFormat OutputMetadata { get; }
 
         /// <summary>
-        /// The raw file name.
-        /// </summary>
-        public string RawFileName { get; }
+        /// The metadata output file.
+        /// </summary>>
+        public string MetadataOutputFile { get; }
 
         /// <summary>
-        /// The RAW file name without extension.
+        /// Gzip the output file.
         /// </summary>
-        public string RawFileNameWithoutExtension { get; }
+        public bool Gzip { get; }
+
+        public bool NoPeakPicking { get; }
+
+        public bool NoZlibCompression { get; }
+
+        public LogFormat LogFormat { get; }
+
+        public bool IgnoreInstrumentErrors { get; }
 
         private S3Loader S3Loader { get; set; }
 
@@ -48,35 +77,83 @@ namespace ThermoRawFileParser
 
         private string S3url { get; }
 
-        public bool IgnoreInstrumentErrors { get; }
+        private readonly string bucketName;
 
-        public bool NoPeakPicking { get; }
+        /// <summary>
+        /// The raw file name.
+        /// </summary>
+        private string rawFileName;
 
-        private string bucketName;
+        /// <summary>
+        /// The RAW file name without extension.
+        /// </summary>
+        public string RawFileNameWithoutExtension { get; private set; }
 
-        public ParseInput(string rawFilePath, string outputDirectory, OutputFormat outputFormat, bool gzip,
-            MetadataFormat outputMetadata, string s3url, string s3AccessKeyId,
-            string s3SecretAccessKey, string bucketName,
-            bool ignoreInstrumentErrors, bool noPeakPicking
+        public ParseInput(string rawFilePath, string rawDirectoryPath, string outputDirectory, string outputFile,
+            OutputFormat outputFormat
         )
         {
             RawFilePath = rawFilePath;
-            var splittedPath = RawFilePath.Split('/');
-            RawFileName = splittedPath[splittedPath.Length - 1];
-            RawFileNameWithoutExtension = Path.GetFileNameWithoutExtension(RawFileName);
+            RawDirectoryPath = rawDirectoryPath;
             OutputDirectory = outputDirectory;
+            OutputFile = outputFile;
             OutputFormat = outputFormat;
-            Gzip = gzip;
+            OutputMetadata = MetadataFormat.NONE;
+            Gzip = false;
+            NoPeakPicking = false;
+            NoZlibCompression = false;
+            LogFormat = LogFormat.DEFAULT;
+            IgnoreInstrumentErrors = false;
+
+            if (S3url != null && S3AccessKeyId != null && S3SecretAccessKey != null && bucketName != null)
+                if (Uri.IsWellFormedUriString(S3url, UriKind.Absolute))
+                {
+                    InitializeS3Bucket();
+                }
+                else
+                {
+                    throw new RawFileParserException("Invalid S3 url: " + S3url);
+                }
+
+            if (OutputDirectory == null && OutputFile != null)
+                OutputDirectory = Path.GetDirectoryName(OutputFile);
+        }
+
+        public ParseInput(string rawFilePath, string rawDirectoryPath, string outputDirectory, string outputFile,
+            OutputFormat outputFormat, MetadataFormat outputMetadata, string metadataOutputFile, bool gzip,
+            bool noPeakPicking, bool noZlibCompression, LogFormat logFormat, bool ignoreInstrumentErrors, string s3url,
+            string s3AccessKeyId, string s3SecretAccessKey, string bucketName
+        )
+        {
+            RawFilePath = rawFilePath;
+            RawDirectoryPath = rawDirectoryPath;
+            OutputDirectory = outputDirectory;
+            OutputFile = outputFile;
+            OutputFormat = outputFormat;
             OutputMetadata = outputMetadata;
+            MetadataOutputFile = metadataOutputFile;
+            Gzip = gzip;
+            NoPeakPicking = noPeakPicking;
+            NoZlibCompression = noZlibCompression;
+            LogFormat = logFormat;
+            IgnoreInstrumentErrors = ignoreInstrumentErrors;
             S3url = s3url;
             S3AccessKeyId = s3AccessKeyId;
             S3SecretAccessKey = s3SecretAccessKey;
             this.bucketName = bucketName;
-            IgnoreInstrumentErrors = ignoreInstrumentErrors;
-            NoPeakPicking = noPeakPicking;
 
             if (S3url != null && S3AccessKeyId != null && S3SecretAccessKey != null && bucketName != null)
-                InitializeS3Bucket();
+                if (Uri.IsWellFormedUriString(S3url, UriKind.Absolute))
+                {
+                    InitializeS3Bucket();
+                }
+                else
+                {
+                    throw new RawFileParserException("Invalid S3 url: " + S3url);
+                }
+
+            if (OutputDirectory == null && OutputFile != null)
+                OutputDirectory = Path.GetDirectoryName(OutputFile);
         }
 
         private void InitializeS3Bucket()
