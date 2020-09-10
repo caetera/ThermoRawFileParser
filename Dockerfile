@@ -5,7 +5,7 @@ FROM mono:latest
 LABEL base_image="mono:latest"
 LABEL version="1"
 LABEL software="ThermoRawFileParser"
-LABEL software.version="1.1.11"
+LABEL software.version="1.2.3"
 LABEL about.summary="A software to convert Thermo RAW files to mgf and mzML"
 LABEL about.home="https://github.com/compomics/ThermoRawFileParser"
 LABEL about.documentation="https://github.com/compomics/ThermoRawFileParser"
@@ -44,7 +44,7 @@ RUN git clone  -b master --single-branch https://github.com/compomics/ThermoRawF
 RUN msbuild
 RUN ls -l -R 
 
-COPY ThermoRawFileParser /home/biodocker/bin/bin/x64/Debug/
+RUN cp ThermoRawFileParser /home/biodocker/bin/bin/x64/Debug/
 
 USER root 
 RUN chown biodocker:biodocker /home/biodocker/bin/bin/x64/Debug/ThermoRawFileParser
