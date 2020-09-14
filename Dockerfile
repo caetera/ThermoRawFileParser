@@ -5,7 +5,7 @@ FROM mono:latest
 LABEL base_image="mono:latest"
 LABEL version="1"
 LABEL software="ThermoRawFileParser"
-LABEL software.version="1.2.3"
+LABEL software.version="1.3.1"
 LABEL about.summary="A software to convert Thermo RAW files to mgf and mzML"
 LABEL about.home="https://github.com/compomics/ThermoRawFileParser"
 LABEL about.documentation="https://github.com/compomics/ThermoRawFileParser"
@@ -40,20 +40,14 @@ USER biodocker
 
 RUN mkdir -p /home/biodocker/bin/
 WORKDIR /home/biodocker/bin/
-RUN git clone  -b master --single-branch https://github.com/compomics/ThermoRawFileParser /home/biodocker/bin
+RUN git clone  -b master --single-branch --depth 1 https://github.com/compomics/ThermoRawFileParser /home/biodocker/bin
 RUN msbuild
-RUN ls -l -R 
+RUN mkdir /home/biodocker/TRFP &&\
+    cp /home/biodocker/bin/bin/x64/Debug/* /home/biodocker/TRFP
 
-RUN cp ThermoRawFileParser /home/biodocker/bin/bin/x64/Debug/
+USER root
+RUN cp /home/biodocker/bin/ThermoRawFileParser /usr/local/bin/ &&\
+    rm -rf /home/biodocker/bin 
 
-USER root 
-RUN chown biodocker:biodocker /home/biodocker/bin/bin/x64/Debug/ThermoRawFileParser
-RUN rm -rfv /usr/share/man/
-
-USER biodocker
-
-RUN chmod +x /home/biodocker/bin/bin/x64/Debug/ThermoRawFileParser
-RUN chmod +x /home/biodocker/bin/bin/x64/Debug/ThermoRawFileParser.exe
-ENV PATH=/home/biodocker/bin/bin/x64/Debug/:$PATH
-RUN ls -la -R /home/biodocker/bin/bin/x64/Debug/
-
+RUN chown biodocker:biodocker /usr/local/bin/ThermoRawFileParser &&\
+    chmod +x /usr/local/bin/ThermoRawFileParser
