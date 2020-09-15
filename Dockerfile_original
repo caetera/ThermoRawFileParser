@@ -40,19 +40,13 @@ USER biodocker
 
 RUN mkdir -p /home/biodocker/bin/
 WORKDIR /home/biodocker/bin/
-RUN git clone  -b master --single-branch --depth 1 https://github.com/caetera/ThermoRawFileParser /home/biodocker/bin
+RUN git clone  -b master --single-branch --depth 1 https://github.com/compomics/ThermoRawFileParser /home/biodocker/bin
 RUN msbuild
-RUN mkdir /home/biodocker/TRFP &&\
-    cp /home/biodocker/bin/bin/x64/Debug/* /home/biodocker/TRFP
 
 USER root
 RUN cp /home/biodocker/bin/ThermoRawFileParser /usr/local/bin/ &&\
-    ln -s /usr/local/bin/ThermoRawFileParser /usr/local/bin/thermorawfileparser &&\
-    ln -s /usr/local/bin/ThermoRawFileParser /usr/local/bin/thermoparser &&\
-    ln -s /usr/local/bin/ThermoRawFileParser /usr/local/bin/ThermoParser &&\
-    rm -rf /home/biodocker/bin &&\
-    rmdir /home/biodocker/bin &&\
-    chown biodocker:biodocker /usr/local/bin/* &&\
+
+RUN chown biodocker:biodocker /usr/local/bin/ThermoRawFileParser &&\
     chmod +x /usr/local/bin/ThermoRawFileParser
 
 USER biodocker
