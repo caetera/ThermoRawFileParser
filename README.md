@@ -57,9 +57,12 @@ optional subcommands are xic|query (use [subcommand] -h for more info]):
   -b, --output_file=VALUE    The output file. Specify this or an output
                                directory -o. Specifying neither writes to the
                                input directory.
+  -s, --stdout               Write to standard output. Cannot be combined with
+                               file or directory output. Implies silent logging,
+                               i.e. logging level 0
   -f, --format=VALUE         The spectra output format: 0 for MGF, 1 for mzML,
                                2 for indexed mzML, 3 for Parquet. Defaults to
-                               mzML if no format is specified.
+                               indexed mzML if no format is specified.
   -m, --metadata=VALUE       The metadata output format: 0 for JSON, 1 for TXT.
   -c, --metadata_output_file=VALUE
                              The metadata output file. By default the metadata
@@ -121,7 +124,7 @@ Return one or more chromatograms based on query JSON input.
 mono ThermoRawFileParser.exe xic -i=/home/user/data_input/raw_file.raw -j=/home/user/xic_input.json
 ```
 ```
-ThermoRawFileParser.exe query --help
+ThermoRawFileParser.exe xic --help
 usage is:
   -h, --help                 Prints out the options.
   -i, --input=VALUE          The raw file input (Required). Specify this or an

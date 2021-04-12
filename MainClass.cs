@@ -19,7 +19,7 @@ namespace ThermoRawFileParser
         private static readonly ILog Log =
             LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
-        public const string Version = "1.3.2";
+        public const string Version = "1.3.3";
 
         public static void Main(string[] args)
         {
@@ -390,7 +390,7 @@ namespace ThermoRawFileParser
                 },
                 {
                     "f=|format=",
-                    "The spectra output format: 0 for MGF, 1 for mzML, 2 for indexed mzML, 3 for Parquet. Defaults to mzML if no format is specified.",
+                    "The spectra output format: 0 for MGF, 1 for mzML, 2 for indexed mzML, 3 for Parquet. Defaults to indexed mzML if no format is specified.",
                     v => outputFormatString = v
                 },
                 {
@@ -435,13 +435,13 @@ namespace ThermoRawFileParser
                 },
                 {
                     "L=|msLevel=",
-                    "Select MS levels (MS1, MS2, etc) included in the output, should be a comma-separated list of integers ( 1,2,3 ) and/or intervals ( 1-3 ), open-end intervals ( 1- ) are allowed",
+                    "Select MS levels (MS1, MS2, etc) included in the output, should be a comma-separated list of integers (1,2,3) and/or intervals (1-3), open-end intervals (1-) are allowed",
                     v => parseInput.MsLevel = ParseMsLevel(v)
                 },
                 {
                     "P|mgfPrecursor",
                     "Include precursor scan number in MGF file TITLE",
-                    v => parseInput.MGFPrecursor = v != null
+                    v => parseInput.MgfPrecursor = v != null
                 },
                 {
                     "u:|s3_url:",
@@ -472,13 +472,13 @@ namespace ThermoRawFileParser
 
                 if (!extra.IsNullOrEmpty())
                 {
-                    throw new OptionException("unexpected extra arguments", null);
+                    throw new OptionException("Unexpected extra arguments", null);
                 }
 
                 if (help)
                 {
                     var helpMessage =
-                        $"usage is {Assembly.GetExecutingAssembly().GetName().Name}.exe [subcommand] [options]\noptional subcommands are xic|query (use [subcommand] -h for more info]):";
+                        $"Usage is {Assembly.GetExecutingAssembly().GetName().Name}.exe [subcommand] [options]\noptional subcommands are xic|query (use [subcommand] -h for more info]):";
                     ShowHelp(helpMessage, null, optionSet);
                     return;
                 }
@@ -576,7 +576,7 @@ namespace ThermoRawFileParser
 
                 if (metadataFormatString == null && outputFormatString == null)
                 {
-                    parseInput.OutputFormat = OutputFormat.MzML;
+                    parseInput.OutputFormat = OutputFormat.IndexMzML;
                 }
 
                 if (outputFormatString != null)

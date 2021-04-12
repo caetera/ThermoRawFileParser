@@ -7,13 +7,13 @@ namespace ThermoRawFileParser
 {
     public class ParseInput
     {
-        //all ms levels
-        private readonly HashSet<int> allLevels = new HashSet<int>(new int[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+        // All MS levels
+        private readonly HashSet<int> _allLevels = new HashSet<int>(new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
 
         /// <summary>
         /// The RAW file path.
         /// </summary>
-        private string rawFilePath;
+        private string _rawFilePath;
 
         /// <summary>
         /// The RAW folder path.
@@ -22,15 +22,13 @@ namespace ThermoRawFileParser
 
         public string RawFilePath
         {
-            get => rawFilePath;
+            get => _rawFilePath;
             set
             {
-                rawFilePath = value;
+                _rawFilePath = value;
                 if (value != null)
                 {
                     RawFileNameWithoutExtension = Path.GetFileNameWithoutExtension(value);
-                    var splittedPath = value.Split('/');
-                    rawFileName = splittedPath[splittedPath.Length - 1];
                 }
             }
         }
@@ -79,7 +77,7 @@ namespace ThermoRawFileParser
 
         public HashSet<int> MsLevel { get; set; }
 
-        public bool MGFPrecursor { get; set; }
+        public bool MgfPrecursor { get; set; }
 
         public bool StdOut { get; set; }
 
@@ -92,11 +90,6 @@ namespace ThermoRawFileParser
         public string S3Url { get; set; }
 
         public string BucketName { get; set; }
-
-        /// <summary>
-        /// The raw file name.
-        /// </summary>
-        private string rawFileName;
 
         /// <summary>
         /// The RAW file name without extension.
@@ -113,7 +106,8 @@ namespace ThermoRawFileParser
             LogFormat = LogFormat.DEFAULT;
             IgnoreInstrumentErrors = false;
             AllDetectors = false;
-            MsLevel = allLevels;
+            MsLevel = _allLevels;
+            MgfPrecursor = false;
             StdOut = false;
         }
 
@@ -124,6 +118,7 @@ namespace ThermoRawFileParser
             RawDirectoryPath = rawDirectoryPath;
             OutputDirectory = outputDirectory;
             OutputFormat = outputFormat;
+            MgfPrecursor = true;
         }
 
         public void InitializeS3Bucket()

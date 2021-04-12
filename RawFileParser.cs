@@ -39,7 +39,7 @@ namespace ThermoRawFileParser
                 {
                     parseInput.RawFilePath = filePath;
                     Log.Info("Started parsing " + parseInput.RawFilePath);
-                    TryProcessFile(parseInput);                    
+                    TryProcessFile(parseInput);
                 }
             }
             // Input raw file mode
@@ -120,26 +120,8 @@ namespace ThermoRawFileParser
 
                 if (parseInput.MetadataFormat != MetadataFormat.NONE)
                 {
-                    MetadataWriter metadataWriter;
-                    if (parseInput.MetadataOutputFile != null)
-                    {
-                        metadataWriter = new MetadataWriter(null, parseInput.MetadataOutputFile);
-                    }
-                    else
-                    {
-                        metadataWriter = new MetadataWriter(parseInput.OutputDirectory,
-                            parseInput.RawFileNameWithoutExtension);
-                    }
-
-                    switch (parseInput.MetadataFormat)
-                    {
-                        case MetadataFormat.JSON:
-                            metadataWriter.WriteJsonMetada(rawFile, firstScanNumber, lastScanNumber);
-                            break;
-                        case MetadataFormat.TXT:
-                            metadataWriter.WriteMetadata(rawFile, firstScanNumber, lastScanNumber);
-                            break;
-                    }
+                    MetadataWriter metadataWriter = new MetadataWriter(parseInput);
+                    metadataWriter.WriteMetadata(rawFile, firstScanNumber, lastScanNumber);
                 }
 
                 if (parseInput.OutputFormat != OutputFormat.NONE)
