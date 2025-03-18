@@ -10,11 +10,10 @@ jobs:
     runs-on: 'ubuntu-latest'
     
     steps:
-    - name: Save version name
+    - name: GetVersion
       run: |
         VERSION=${GITHUB_REF_NAME#v}
-        echo Version: $VERSION
-        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        echo  "version=$VERSION" >> "$GITHUB_OUTPUT"
         
     - uses: actions/checkout@v4
       with:
@@ -40,6 +39,7 @@ jobs:
         
     - name: Publish all
       run: |
+        echo "Version: ${{steps.GetVersion.outputs.version}}"
         dotnet publish --configuration Release --runtime linux-x64 main/ThermoRawFileParser.csproj --sc -o publish/linux-x64
         dotnet publish --configuration Release --runtime win-x64 main/ThermoRawFileParser.csproj --sc -o publish/win-x64
         dotnet publish --configuration Release --runtime osx-x64 main/ThermoRawFileParser.csproj --sc -o publish/osx-x64
@@ -49,51 +49,51 @@ jobs:
       uses: vimtor/action-zip@v1.2
       with:
         files: publish/linux-x64
-        dest: ThermoRawFileParser-$VERSION-linux.zip
+        dest: ThermoRawFileParser-${{steps.GetVersion.outputs.version}}-linux.zip
         
     - name: Upload Linux to release
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: ThermoRawFileParser-$VERSION-linux.zip
+        file: ThermoRawFileParser-${{steps.GetVersion.outputs.version}}-linux.zip
         tag: ${{ github.ref }}
         
     - name: Zipping OSX standalone
       uses: vimtor/action-zip@v1.2
       with:
         files: publish/osx-x64
-        dest: ThermoRawFileParser-$VERSION-osx.zip
+        dest: ThermoRawFileParser-${{steps.GetVersion.outputs.version}}-osx.zip
 
     - name: Upload OSX to release
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: ThermoRawFileParser-$VERSION-osx.zip
+        file: ThermoRawFileParser-${{steps.GetVersion.outputs.version}}-osx.zip
         tag: ${{ github.ref }}
         
     - name: Zipping Windows standalone
       uses: vimtor/action-zip@v1.2
       with:
         files: publish/win-x64
-        dest: ThermoRawFileParser-$VERSION-win.zip
+        dest: ThermoRawFileParser-${{steps.GetVersion.outputs.version}}-win.zip
         
     - name: Upload Windows to release
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: ThermoRawFileParser-$VERSION-win.zip
+        file: ThermoRawFileParser-${{steps.GetVersion.outputs.version}}-win.zip
         tag: ${{ github.ref }}
         
     - name: Zipping framework-based
       uses: vimtor/action-zip@v1.2
       with:
         files: publish/net8
-        dest: ThermoRawFileParser-$VERSION-net8.zip
+        dest: ThermoRawFileParser-${{steps.GetVersion.outputs.version}}-net8.zip
         
     - name: Upload framework-based to release
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: ThermoRawFileParser-$VERSION-net8.zip
+        file: ThermoRawFileParser-${{steps.GetVersion.outputs.version}}-net8.zip
         tag: ${{ github.ref }}
     
