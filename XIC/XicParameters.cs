@@ -4,26 +4,44 @@ namespace ThermoRawFileParser.XIC
 {
     public class XicParameters
     {
+        private int _errors;
+        private int _warnings;
+
         public bool help { get; set; }
         public ArrayList rawFileList { get; set; }
         public string jsonFilePath { get; set; }
-        public string outputDirectory { get; set; }
+        public ArrayList outputFileList { get; set; }
         public bool printJsonExample { get; set; }
-        public string outputFileName { get; set; }
         public bool base64 { get; set; }
         public bool stdout { get; set; }
-
+        public bool Vigilant { get; set; }
+        public int Errors { get => _errors; }
+        public int Warnings { get => _warnings; }
+        public LogFormat LogFormat { get; set; }
 
         public XicParameters()
         {
             help = false;
             rawFileList = new ArrayList();
             jsonFilePath = null;
-            outputDirectory = null;
+            outputFileList = new ArrayList();
             printJsonExample = false;
-            outputFileName = null;
             base64 = false;
             stdout = false;
+            Vigilant = false;
+            LogFormat = LogFormat.DEFAULT;
+            _errors = 0;
+            _warnings = 0;
+        }
+
+        public void NewError()
+        {
+            _errors++;
+        }
+
+        public void NewWarn()
+        {
+            _warnings++;
         }
 
 
@@ -37,11 +55,14 @@ namespace ThermoRawFileParser.XIC
             }
 
             jsonFilePath = copy.jsonFilePath;
-            outputDirectory = copy.outputDirectory;
+            outputFileList = copy.outputFileList;
             printJsonExample = copy.printJsonExample;
-            outputFileName = copy.outputFileName;
             base64 = copy.base64;
             stdout = copy.stdout;
+            LogFormat = copy.LogFormat;
+            Vigilant = copy.Vigilant;
+            _errors = copy.Errors;
+            _warnings = copy.Warnings;
         }
     }
 }

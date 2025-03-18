@@ -1,12 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using log4net;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
 using ThermoRawFileParser.Writer;
+using ThermoRawFileParser.Util;
 
 namespace ThermoRawFileParser.Query
 {
@@ -26,8 +29,29 @@ namespace ThermoRawFileParser.Query
         {
             var resultList = new List<ProxiSpectrum>();
             IRawDataPlus rawFile;
+
+            //checking for symlinks
+            var fileInfo = new FileInfo(queryParameters.rawFilePath);
+            if (fileInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)) //detected path is a symlink
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    var realPath = NativeMethods.GetFinalPathName(queryParameters.rawFilePath);
+                    Log.DebugFormat("Detected reparse point, real path: {0}", realPath);
+                    queryParameters.UpdateRealPath(realPath);
+                }
+                else //Mono should handle all non-windows platforms
+                {
+                    var realPath = Path.Combine(Path.GetDirectoryName(queryParameters.rawFilePath), Mono.Unix.UnixPath.ReadLink(queryParameters.rawFilePath));
+                    Log.DebugFormat("Detected reparse point, real path: {0}", realPath);
+                    queryParameters.UpdateRealPath(realPath);
+                }
+            }
+
             using (rawFile = RawFileReaderFactory.ReadFile(queryParameters.rawFilePath))
             {
+                Log.Info($"Started parsing {queryParameters.userFilePath}");
+
                 if (!rawFile.IsOpen)
                 {
                     throw new RawFileParserException("Unable to access the RAW file using the native Thermo library.");
@@ -37,13 +61,13 @@ namespace ThermoRawFileParser.Query
                 if (rawFile.IsError)
                 {
                     throw new RawFileParserException(
-                        $"Error opening ({rawFile.FileError}) - {queryParameters.rawFilePath}");
+                        $"RAW file cannot be processed because of an error - {rawFile.FileError}");
                 }
 
                 // Check if the RAW file is being acquired
                 if (rawFile.InAcquisition)
                 {
-                    throw new RawFileParserException("RAW file still being acquired - " + queryParameters.rawFilePath);
+                    throw new RawFileParserException("RAW file cannot be processed since it is still being acquired");
                 }
 
                 // Get the number of instruments (controllers) present in the RAW file and set the 
@@ -56,14 +80,12 @@ namespace ThermoRawFileParser.Query
                 foreach (var scanNumber in queryParameters.scanNumbers)
                 {
                     var proxiSpectrum = new ProxiSpectrum();
-                    double monoisotopicMz = 0.0;
+                    
                     try
                     {
                         // Get each scan from the RAW file
                         var scan = Scan.FromFile(rawFile, scanNumber);
 
-                        // Check to see if the RAW file contains label (high-res) data and if it is present
-                        // then look for any data that is out of order
                         var time = rawFile.RetentionTimeFromScanNumber(scanNumber);
 
                         // Get the scan filter for this scan number
@@ -78,44 +100,39 @@ namespace ThermoRawFileParser.Query
                             reaction = SpectrumWriter.GetReaction(scanEvent, scanNumber);
                         }
 
-                        proxiSpectrum.AddAttribute(accession: "MS:10003057", name: "scan number",
+                        proxiSpectrum.AddAttribute(accession: "MS:1003057", name: "scan number",
                             value: scanNumber.ToString(CultureInfo.InvariantCulture));
-                        proxiSpectrum.AddAttribute(accession: "MS:10000016", name: "scan start time",
+                        proxiSpectrum.AddAttribute(accession: "MS:1000016", name: "scan start time",
                             value: (time * 60).ToString(CultureInfo.InvariantCulture));
                         proxiSpectrum.AddAttribute(accession: "MS:1000511", name: "ms level",
                             value: ((int) scanFilter.MSOrder).ToString(CultureInfo.InvariantCulture));
 
                         // trailer extra data list
-                        var trailerData = rawFile.GetTrailerExtraInformation(scanNumber);
-                        var charge = 0;
-                        var isolationWidth = 0.0;
-                        for (var i = 0; i < trailerData.Length; i++)
+                        ScanTrailer trailerData;
+                        try
                         {
-                            if (trailerData.Labels[i] == "Ion Injection Time (ms):")
-                            {
-                                proxiSpectrum.AddAttribute(accession: "MS:10000927", name: "ion injection time",
-                                    value: trailerData.Values[i], cvGroup: cvGroup.ToString());
-                                proxiSpectrum.AddAttribute(accession: "UO:0000028", name: "millisecond",
-                                    cvGroup: cvGroup.ToString());
-                                cvGroup++;
-                            }
+                            trailerData = new ScanTrailer(rawFile.GetTrailerExtraInformation(scanNumber));
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.WarnFormat("Cannot load trailer infromation for scan {0} due to following exception\n{1}", scanNumber, ex.Message);
+                            queryParameters.NewWarn();
+                            trailerData = new ScanTrailer();
+                        }
 
-                            if (trailerData.Labels[i] == "Charge State:")
-                            {
-                                charge = Convert.ToInt32(trailerData.Values[i]);
-                            }
+                        int? charge = trailerData.AsPositiveInt("Charge State:");
+                        double? monoisotopicMz = trailerData.AsDouble("Monoisotopic M/Z:");
+                        double? ionInjectionTime = trailerData.AsDouble("Ion Injection Time (ms):");
+                        double? isolationWidth = trailerData.AsDouble("MS" + (int)scanFilter.MSOrder + " Isolation Width:");
 
-                            if (trailerData.Labels[i] == "Monoisotopic M/Z:")
-                            {
-                                monoisotopicMz = double.Parse(trailerData.Values[i], NumberStyles.Any,
-                                    CultureInfo.CurrentCulture);
-                            }
-
-                            if (trailerData.Labels[i] == "MS" + (int) scanFilter.MSOrder + " Isolation Width:")
-                            {
-                                isolationWidth = double.Parse(trailerData.Values[i], NumberStyles.Any,
-                                    CultureInfo.CurrentCulture);
-                            }
+                        //injection time
+                        if (ionInjectionTime != null)
+                        {
+                            proxiSpectrum.AddAttribute(accession: "MS:1000927", name: "ion injection time",
+                                value: ionInjectionTime.ToString(), cvGroup: cvGroup.ToString());
+                            proxiSpectrum.AddAttribute(accession: "UO:0000028", name: "millisecond",
+                                cvGroup: cvGroup.ToString());
+                            cvGroup++;
                         }
 
                         if (reaction != null)
@@ -123,41 +140,47 @@ namespace ThermoRawFileParser.Query
                             // Store the precursor information
                             var selectedIonMz =
                                 SpectrumWriter.CalculateSelectedIonMz(reaction, monoisotopicMz, isolationWidth);
-                            proxiSpectrum.AddAttribute(accession: "MS:10000744", name: "selected ion m/z",
+                            proxiSpectrum.AddAttribute(accession: "MS:1000744", name: "selected ion m/z",
                                 value: selectedIonMz.ToString(CultureInfo.InvariantCulture));
                             proxiSpectrum.AddAttribute(accession: "MS:1000827",
                                 name: "isolation window target m/z",
                                 value: selectedIonMz.ToString(CultureInfo.InvariantCulture));
 
                             // Store the isolation window information
-                            var isolationHalfWidth = isolationWidth / 2;
+                            var offset = isolationWidth.Value / 2 + reaction.IsolationWidthOffset;
                             proxiSpectrum.AddAttribute(accession: "MS:1000828",
                                 name: "isolation window lower offset",
-                                value: isolationHalfWidth.ToString(CultureInfo.InvariantCulture));
+                                value: (isolationWidth.Value - offset).ToString());
                             proxiSpectrum.AddAttribute(accession: "MS:1000829",
                                 name: "isolation window upper offset",
-                                value: isolationHalfWidth.ToString(CultureInfo.InvariantCulture));
+                                value: offset.ToString());
                         }
 
                         // scan polarity
                         if (scanFilter.Polarity == PolarityType.Positive)
                         {
-                            proxiSpectrum.AddAttribute(accession: "MS:10000465", name: "scan polarity",
+                            proxiSpectrum.AddAttribute(accession: "MS:1000465", name: "scan polarity",
                                 value: "positive scan", valueAccession: "MS:1000130");
                         }
                         else
                         {
-                            proxiSpectrum.AddAttribute(accession: "MS:10000465", name: "scan polarity",
+                            proxiSpectrum.AddAttribute(accession: "MS:1000465", name: "scan polarity",
                                 value: "negative scan", valueAccession: "MS:1000129");
                         }
 
                         // charge state
-                        proxiSpectrum.AddAttribute(accession: "MS:10000041", name: "charge state",
-                            value: charge.ToString(CultureInfo.InvariantCulture));
+                        if (charge != null)
+                        {
+                            proxiSpectrum.AddAttribute(accession: "MS:1000041", name: "charge state",
+                                value: charge.ToString());
+                        }
 
                         // write the filter string
-                        proxiSpectrum.AddAttribute(accession: "MS:10000512", name: "filter string",
+                        proxiSpectrum.AddAttribute(accession: "MS:1000512", name: "filter string",
                             value: scanEvent.ToString());
+
+                        double[] masses = null;
+                        double[] intensities = null;
 
                         if (!queryParameters.noPeakPicking) // centroiding requested
                         {
@@ -169,8 +192,8 @@ namespace ThermoRawFileParser.Query
                                     proxiSpectrum.AddAttribute(accession: "MS:1000525", name: "spectrum representation",
                                         value: "centroid spectrum", valueAccession: "MS:1000127");
 
-                                    proxiSpectrum.AddMz(scan.CentroidScan.Masses);
-                                    proxiSpectrum.AddIntensities(scan.CentroidScan.Intensities);
+                                    masses = scan.CentroidScan.Masses;
+                                    intensities = scan.CentroidScan.Intensities;
                                 }
                             }
                             else // otherwise take the low res segmented data
@@ -185,8 +208,8 @@ namespace ThermoRawFileParser.Query
                                     proxiSpectrum.AddAttribute(accession: "MS:1000525", name: "spectrum representation",
                                         value: "centroid spectrum", valueAccession: "MS:1000127");
 
-                                    proxiSpectrum.AddMz(segmentedScan.Positions);
-                                    proxiSpectrum.AddIntensities(segmentedScan.Intensities);
+                                    masses = segmentedScan.Positions;
+                                    intensities = segmentedScan.Intensities;
                                 }
                             }
                         }
@@ -209,9 +232,17 @@ namespace ThermoRawFileParser.Query
                                         break;
                                 }
 
-                                proxiSpectrum.AddMz(scan.SegmentedScan.Positions);
-                                proxiSpectrum.AddIntensities(scan.SegmentedScan.Intensities);
+                                masses = scan.SegmentedScan.Positions;
+                                intensities = scan.SegmentedScan.Intensities;
                             }
+                        }
+
+                        if (masses != null && intensities != null)
+                        {
+                            Array.Sort(masses, intensities);
+
+                            proxiSpectrum.AddMz(masses);
+                            proxiSpectrum.AddIntensities(intensities);
                         }
 
                         resultList.Add(proxiSpectrum);
@@ -220,7 +251,8 @@ namespace ThermoRawFileParser.Query
                     {
                         if (ex.GetBaseException() is IndexOutOfRangeException)
                         {
-                            // ignore
+                            Log.WarnFormat("Spectrum #{0} is outside of file boundries", scanNumber);
+                            queryParameters.NewWarn();
                         }
                         else
                         {
@@ -229,6 +261,8 @@ namespace ThermoRawFileParser.Query
                     }
                 }
             }
+
+            Log.Info($"Finished processing {queryParameters.userFilePath}");
 
             return resultList;
         }

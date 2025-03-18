@@ -1,10 +1,12 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.Interfaces;
 using ThermoRawFileParser.Writer;
+using ThermoRawFileParser.Util;
 
 namespace ThermoRawFileParser
 {
@@ -61,22 +63,26 @@ namespace ThermoRawFileParser
             {
                 ProcessFile(parseInput);
             }
-            catch (UnauthorizedAccessException ex)
-            {
-                Log.Error(!ex.Message.IsNullOrEmpty()
-                    ? ex.Message
-                    : "Attempting to write to an unauthorized location.");
-            }
+            
             catch (Exception ex)
             {
-                if (ex is RawFileParserException)
+                if (ex is UnauthorizedAccessException)
+                {
+                    Log.Error(!ex.Message.IsNullOrEmpty()
+                        ? ex.Message
+                        : "Attempting to write to an unauthorized location.");
+                    parseInput.NewError();
+                }
+                else if (ex is RawFileParserException)
                 {
                     Log.Error(ex.Message);
+                    parseInput.NewError();
                 }
                 else
                 {
-                    Log.Error("An unexpected error occured while parsing file:" + parseInput.RawFilePath);
+                    Log.Error("An unexpected error occured (see below)");
                     Log.Error(ex.ToString());
+                    parseInput.NewError();
                 }
             }
         }
@@ -89,6 +95,26 @@ namespace ThermoRawFileParser
         {
             // Create the IRawDataPlus object for accessing the RAW file
             IRawDataPlus rawFile;
+
+            //checking for symlinks
+            var fileInfo = new FileInfo(parseInput.RawFilePath);
+
+            if (fileInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)) //detected path is a symlink
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    var realPath = NativeMethods.GetFinalPathName(parseInput.RawFilePath);
+                    Log.DebugFormat("Detected reparse point, real path: {0}", realPath);
+                    parseInput.UpdateRealPath(realPath);
+                }
+                else //Mono should handle all non-windows platforms
+                {
+                    var realPath = Path.Combine(Path.GetDirectoryName(parseInput.RawFilePath), Mono.Unix.UnixPath.ReadLink(parseInput.RawFilePath));
+                    Log.DebugFormat("Detected reparse point, real path: {0}", realPath);
+                    parseInput.UpdateRealPath(realPath);
+                }
+            }
+            
             using (rawFile = RawFileReaderFactory.ReadFile(parseInput.RawFilePath))
             {
                 if (!rawFile.IsOpen)
@@ -99,32 +125,43 @@ namespace ThermoRawFileParser
                 // Check for any errors in the RAW file
                 if (rawFile.IsError)
                 {
-                    throw new RawFileParserException($"Error opening ({rawFile.FileError}) - {parseInput.RawFilePath}");
+                    throw new RawFileParserException($"RAW file cannot be processed because of an error - {rawFile.FileError}");
                 }
 
                 // Check if the RAW file is being acquired
                 if (rawFile.InAcquisition)
                 {
-                    throw new RawFileParserException("RAW file still being acquired - " + parseInput.RawFilePath);
+                    throw new RawFileParserException("RAW file cannot be processed since it is still being acquired");
                 }
 
                 // Get the number of instruments (controllers) present in the RAW file and set the 
                 // selected instrument to the MS instrument, first instance of it
-                rawFile.SelectInstrument(Device.MS, 1);
+                var firstScanNumber = -1;
+                var lastScanNumber = -1;
 
-                rawFile.IncludeReferenceAndExceptionData = parseInput.ExData;
+                if (rawFile.GetInstrumentCountOfType(Device.MS) != 0)
+                {
+                    rawFile.SelectInstrument(Device.MS, 1);
+                    rawFile.IncludeReferenceAndExceptionData = !parseInput.ExData;
 
-                // Get the first and last scan from the RAW file
-                var firstScanNumber = rawFile.RunHeaderEx.FirstSpectrum;
-                var lastScanNumber = rawFile.RunHeaderEx.LastSpectrum;
+                    // Get the first and last scan from the RAW file
+                    firstScanNumber = rawFile.RunHeaderEx.FirstSpectrum;
+                    lastScanNumber = rawFile.RunHeaderEx.LastSpectrum;
 
-                if (parseInput.MetadataFormat != MetadataFormat.NONE)
+                    // Check for empty file
+                    if (lastScanNumber < 1)
+                    {
+                        throw new RawFileParserException("Empty RAW file, no output will be produced");
+                    }
+                }
+
+                if (parseInput.MetadataFormat != MetadataFormat.None)
                 {
                     MetadataWriter metadataWriter = new MetadataWriter(parseInput);
                     metadataWriter.WriteMetadata(rawFile, firstScanNumber, lastScanNumber);
                 }
 
-                if (parseInput.OutputFormat != OutputFormat.NONE)
+                if (parseInput.OutputFormat != OutputFormat.None)
                 {
                     SpectrumWriter spectrumWriter;
                     switch (parseInput.OutputFormat)
@@ -145,7 +182,7 @@ namespace ThermoRawFileParser
                     }
                 }
 
-                Log.Info("Finished parsing " + parseInput.RawFilePath);
+                Log.Info("Finished parsing " + parseInput.UserProvidedPath);
             }
         }
     }

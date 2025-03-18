@@ -1,5 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="packages\NUnit3TestAdapter.4.1.0\build\net35\NUnit3TestAdapter.props" Condition="Exists('packages\NUnit3TestAdapter.4.1.0\build\net35\NUnit3TestAdapter.props')" />
   <Import Project="packages\NUnit.3.13.1\build\NUnit.props" Condition="Exists('packages\NUnit.3.13.1\build\NUnit.props')" />
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -14,6 +15,8 @@
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <LangVersion>7.2</LangVersion>
+    <NuGetPackageImportStamp>
+    </NuGetPackageImportStamp>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>x64</PlatformTarget>
@@ -93,6 +96,9 @@
       <HintPath>packages\Mono.Options.6.6.0.161\lib\net40\Mono.Options.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="Mono.Unix, Version=7.1.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>packages\Mono.Unix.7.1.0-final.1.21458.1\lib\net45\Mono.Unix.dll</HintPath>
+    </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="Namotion.Reflection, Version=1.0.18.0, Culture=neutral, PublicKeyToken=c2f9c3bdfae56102">
       <HintPath>packages\Namotion.Reflection.1.0.18\lib\net45\Namotion.Reflection.dll</HintPath>
@@ -170,11 +176,11 @@
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
-    <Reference Include="ThermoFisher.CommonCore.Data, Version=5.0.0.71, Culture=neutral, PublicKeyToken=1aef06afb5abd953, processorArchitecture=MSIL">
-      <HintPath>packages\ThermoFisher.CommonCore.Data.5.0.0.71\lib\netstandard2.0\ThermoFisher.CommonCore.Data.dll</HintPath>
+    <Reference Include="ThermoFisher.CommonCore.Data, Version=5.0.0.93, Culture=neutral, PublicKeyToken=1aef06afb5abd953, processorArchitecture=MSIL">
+      <HintPath>packages\ThermoFisher.CommonCore.Data.5.0.0.93\lib\netstandard2.0\ThermoFisher.CommonCore.Data.dll</HintPath>
     </Reference>
-    <Reference Include="ThermoFisher.CommonCore.RawFileReader, Version=5.0.0.71, Culture=neutral, PublicKeyToken=1aef06afb5abd953, processorArchitecture=MSIL">
-      <HintPath>packages\ThermoFisher.CommonCore.RawFileReader.5.0.0.71\lib\netstandard2.0\ThermoFisher.CommonCore.RawFileReader.dll</HintPath>
+    <Reference Include="ThermoFisher.CommonCore.RawFileReader, Version=5.0.0.93, Culture=neutral, PublicKeyToken=1aef06afb5abd953, processorArchitecture=MSIL">
+      <HintPath>packages\ThermoFisher.CommonCore.RawFileReader.5.0.0.93\lib\netstandard2.0\ThermoFisher.CommonCore.RawFileReader.dll</HintPath>
     </Reference>
     <Reference Include="zlib.net, Version=1.0.3.0, Culture=neutral, PublicKeyToken=47d7877cb3620160">
       <HintPath>packages\zlib.net.1.0.4.0\lib\zlib.net.dll</HintPath>
@@ -193,8 +199,12 @@
     <Compile Include="Query\ProxiSpectrumReader.cs" />
     <Compile Include="RawFileParserException.cs" />
     <Compile Include="RawFileParser.cs" />
+    <Compile Include="Util\CVHelpers.cs" />
     <Compile Include="Util\LimitedSizeDictionary.cs" />
+    <Compile Include="Util\MZArray.cs" />
+    <Compile Include="Util\NativeMethods.cs" />
     <Compile Include="Util\Peptide.cs" />
+    <Compile Include="Writer\PrecursorInfo.cs" />
     <Compile Include="Writer\ScanTrailer.cs" />
     <Compile Include="XIC\JSONInputUnit.cs" />
     <Compile Include="XIC\JSONParser.cs" />
@@ -242,7 +252,10 @@
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Enable NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105.The missing file is {0}.</ErrorText>
     </PropertyGroup>
     <Error Condition="!Exists('packages\NUnit.3.13.1\build\NUnit.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\NUnit.3.13.1\build\NUnit.props'))" />
+    <Error Condition="!Exists('packages\NUnit3TestAdapter.4.1.0\build\net35\NUnit3TestAdapter.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\NUnit3TestAdapter.4.1.0\build\net35\NUnit3TestAdapter.props'))" />
+    <Error Condition="!Exists('packages\Mono.Unix.7.1.0-final.1.21458.1\build\Mono.Unix.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Mono.Unix.7.1.0-final.1.21458.1\build\Mono.Unix.targets'))" />
   </Target>
+  <Import Project="packages\Mono.Unix.7.1.0-final.1.21458.1\build\Mono.Unix.targets" Condition="Exists('packages\Mono.Unix.7.1.0-final.1.21458.1\build\Mono.Unix.targets')" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

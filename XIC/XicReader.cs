@@ -2,11 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using log4net;
-using NUnit.Framework.Internal;
 using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.Interfaces;
+using ThermoRawFileParser.Util;
 
 namespace ThermoRawFileParser.XIC
 {
@@ -17,11 +18,34 @@ namespace ThermoRawFileParser.XIC
 
         private const string MsFilter = "ms";
 
-        public static void ReadXic(string rawFilePath, bool base64, XicData xicData)
+        public static void ReadXic(string rawFilePath, bool base64, XicData xicData, ref XicParameters parameters)
         {
             IRawDataPlus rawFile;
+            int _xicCount = 0;
+            string _userProvidedPath = rawFilePath;
+
+            //checking for symlinks
+            var fileInfo = new FileInfo(rawFilePath);
+            if (fileInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)) //detected path is a symlink
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    var realPath = NativeMethods.GetFinalPathName(rawFilePath);
+                    Log.DebugFormat("Detected reparse point, real path: {0}", realPath);
+                    rawFilePath = realPath;
+                }
+                else //Mono should handle all non-windows platforms
+                {
+                    var realPath = Path.Combine(Path.GetDirectoryName(rawFilePath), Mono.Unix.UnixPath.ReadLink(rawFilePath));
+                    Log.DebugFormat("Detected reparse point, real path: {0}", realPath);
+                    rawFilePath = realPath;
+                }
+            }
+
             using (rawFile = RawFileReaderFactory.ReadFile(rawFilePath))
             {
+                Log.Info($"Started parsing {_userProvidedPath}");
+
                 if (!rawFile.IsOpen)
                 {
                     throw new RawFileParserException("Unable to access the RAW file using the native Thermo library.");
@@ -31,13 +55,13 @@ namespace ThermoRawFileParser.XIC
                 if (rawFile.IsError)
                 {
                     throw new RawFileParserException(
-                        $"Error opening ({rawFile.FileError}) - {rawFilePath}");
+                        $"RAW file cannot be processed because of an error - {rawFile.FileError}");
                 }
 
                 // Check if the RAW file is being acquired
                 if (rawFile.InAcquisition)
                 {
-                    throw new RawFileParserException("RAW file still being acquired - " + rawFilePath);
+                    throw new RawFileParserException("RAW file cannot be processed since it is still being acquired");
                 }
 
                 // Get the number of instruments (controllers) present in the RAW file and set the 
@@ -60,7 +84,15 @@ namespace ThermoRawFileParser.XIC
                 xicData.OutputMeta.base64 = base64;
                 xicData.OutputMeta.timeunit = "minutes";
 
-                foreach (var xicUnit in xicData.Content)
+
+                System.Timers.Timer tick = new System.Timers.Timer(2000);
+                if (!parameters.stdout)
+                {
+                    tick.Elapsed += (object sender, System.Timers.ElapsedEventArgs e) => Console.Out.Write("\rCompleted XIC {0} of {1}", _xicCount, xicData.Content.Count);
+                    tick.Start();
+                }
+
+                    foreach (var xicUnit in xicData.Content)
                 {
                     IChromatogramSettings settings = null;
                     if (!xicUnit.Meta.MzStart.HasValue && !xicUnit.Meta.MzEnd.HasValue)
@@ -125,18 +157,31 @@ namespace ThermoRawFileParser.XIC
                                  Math.Abs(data.PositionsArray[0][0] - endTime) < 0.001))
                             {
                                 Log.Warn(
-                                    $"Only the minimum or maximum retention time was returned. This is an indication that the provided retention time range [{xicUnit.Meta.RtStart}-{xicUnit.Meta.RtEnd}] lies outside the max. window [{startTime}-{endTime}]");
+                                    $"Only the minimum or maximum retention time was returned. " +
+                                    $"Does the provided retention time range [{xicUnit.Meta.RtStart}-{xicUnit.Meta.RtEnd}] lies outside the max. window [{startTime}-{endTime}]?");
+                                parameters.NewWarn();
                             }
                         }
                         else
                         {
                             Log.Warn(
-                                $"No scans found in retention time range [{xicUnit.Meta.RtStart}-{xicUnit.Meta.RtEnd}]. This is an indication that the provided retention time window lies outside the max. window [{startTime}-{endTime}]");
+                                $"No scans found in retention time range [{xicUnit.Meta.RtStart}-{xicUnit.Meta.RtEnd}]. " +
+                                $"Does the provided retention time window lies outside the max. window [{startTime}-{endTime}]");
+                            parameters.NewWarn();
                         }
                     }
                     else
                     {
-                        data = GetChromatogramData(rawFile, settings, firstScanNumber, lastScanNumber);
+                        try
+                        {
+                            data = GetChromatogramData(rawFile, settings, firstScanNumber, lastScanNumber);
+                        }
+
+                        catch (Exception ex)
+                        {
+                            Log.Error($"Cannot produce XIC using {xicUnit.GetMeta()} - {ex.Message}\nDetails:\n{ex.StackTrace}");
+                            parameters.NewError();
+                        }
                     }
 
                     if (data != null)
@@ -155,8 +200,23 @@ namespace ThermoRawFileParser.XIC
                                 xicUnit.Intensities = GetBase64String(chromatogramTrace[0].Intensities);
                             }
                         }
+                        else
+                        {
+                            Log.Warn($"Empty XIC returned by {xicUnit.GetMeta()}");
+                            parameters.NewWarn();
+                        }
                     }
+
+                    _xicCount++;
                 }
+
+                if (!parameters.stdout)
+                {
+                    tick.Stop();
+                    Console.Out.Write("\r");
+                }
+
+                Log.Info($"Finished parsing {_userProvidedPath}");
             }
         }
 
@@ -169,13 +229,14 @@ namespace ThermoRawFileParser.XIC
                 data = rawFile.GetChromatogramData(new IChromatogramSettings[] {settings}, firstScanNumber,
                     lastScanNumber);
             }
-            catch (InvalidFilterFormatException ex)
+            catch (InvalidFilterFormatException)
             {
-                Log.Warn($"Invalid filter string {settings.Filter}");
+                throw new RawFileParserException($"Invalid filter string \"{settings.Filter}\"");
+                
             }
-            catch (InvalidFilterCriteriaException ex)
+            catch (InvalidFilterCriteriaException)
             {
-                Log.Warn($"Invalid filter string {settings.Filter}");
+                throw new RawFileParserException($"Invalid filter string \"{settings.Filter}\"");
             }
 
             return data;

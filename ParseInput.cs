@@ -14,6 +14,12 @@ namespace ThermoRawFileParser
         /// </summary>
         private string _rawFilePath;
 
+        private string _userProvidedFilePath;
+
+        private int _errors;
+
+        private int _warnings;
+
         /// <summary>
         /// The RAW folder path.
         /// </summary>
@@ -25,11 +31,25 @@ namespace ThermoRawFileParser
             set
             {
                 _rawFilePath = value;
+                _userProvidedFilePath = value;
                 if (value != null)
                 {
                     RawFileNameWithoutExtension = Path.GetFileNameWithoutExtension(value);
                 }
             }
+        }
+        public string UserProvidedPath
+        {
+            get => _userProvidedFilePath;
+        }
+
+        public int Errors
+        {
+            get => _errors;
+        }
+        public int Warnings
+        {
+            get => _warnings;
         }
 
         /// <summary>
@@ -76,9 +96,15 @@ namespace ThermoRawFileParser
 
         public HashSet<int> MsLevel { get; set; }
 
+        public int MaxLevel { get; set; }
+
         public bool MgfPrecursor { get; set; }
 
+        public bool NoiseData { get; set; }
+
         public bool StdOut { get; set; }
+
+        public bool Vigilant { get; set; }
 
         private S3Loader S3Loader { get; set; }
 
@@ -97,8 +123,8 @@ namespace ThermoRawFileParser
 
         public ParseInput()
         {
-            MetadataFormat = MetadataFormat.NONE;
-            OutputFormat = OutputFormat.NONE;
+            MetadataFormat = MetadataFormat.None;
+            OutputFormat = OutputFormat.None;
             Gzip = false;
             NoPeakPicking = new HashSet<int>();
             NoZlibCompression = false;
@@ -108,6 +134,11 @@ namespace ThermoRawFileParser
             MsLevel = AllLevels;
             MgfPrecursor = false;
             StdOut = false;
+            NoiseData = false;
+            Vigilant = false;
+            _errors = 0;
+            _warnings = 0;
+            MaxLevel = 10;
         }
 
         public ParseInput(string rawFilePath, string rawDirectoryPath, string outputDirectory, OutputFormat outputFormat
@@ -123,6 +154,26 @@ namespace ThermoRawFileParser
         public void InitializeS3Bucket()
         {
             S3Loader = new S3Loader(S3Url, S3AccessKeyId, S3SecretAccessKey, BucketName);
+        }
+
+        public void NewError()
+        {
+            _errors++;
+        }
+
+        public void NewWarn()
+        {
+            _warnings++;
+        }
+
+        public void UpdateRealPath(string path)
+        {
+            if (path != null)
+            {
+                _userProvidedFilePath = _rawFilePath;
+                _rawFilePath = path;
+                
+            }
         }
     }
 }

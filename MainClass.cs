@@ -11,6 +11,7 @@ using ThermoRawFileParser.XIC;
 using System.Globalization;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Data;
 
 namespace ThermoRawFileParser
 {
@@ -19,8 +20,7 @@ namespace ThermoRawFileParser
         private static readonly ILog Log =
             LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
-        public const string Version = "1.3.4";
-
+        public const string Version = "1.4.5";
         public static void Main(string[] args)
         {
             // Set Invariant culture as default for all further processing
@@ -53,6 +53,9 @@ namespace ThermoRawFileParser
             XicParameters parameters = new XicParameters();
             string singleFile = null;
             string fileDirectory = null;
+            string outputFile = null;
+            string outputDirectory = null;
+            string logFormatString = null;
 
             var optionSet = new OptionSet
             {
@@ -80,12 +83,17 @@ namespace ThermoRawFileParser
                     v => parameters.printJsonExample = v != null
                 },
                 {
-                    "o=|output=",
-                    "The output directory. If not specified, the output is written to the input directory",
-                    v => parameters.outputDirectory = v
+                    "b=|output=",
+                    "The output file. Specify this or an output directory. Specifying neither writes to the input directory.",
+                    v => outputFile = v
                 },
                 {
-                    "b|base64",
+                    "o=|output_directory=",
+                    "The output directory. Specify this or an output file. Specifying neither writes to the input directory.",
+                    v => outputDirectory = v
+                },
+                {
+                    "6|base64",
                     "Encodes the content of the xic vectors as base 64 encoded string.",
                     v => parameters.base64 = v != null
                 },
@@ -93,6 +101,14 @@ namespace ThermoRawFileParser
                     "s|stdout",
                     "Pipes the output into standard output. Logging is being turned off.",
                     v => parameters.stdout = v != null
+                },
+                {
+                    "w|warningsAreErrors", "Return non-zero exit code for warnings; default only for errors",
+                    v => parameters.Vigilant = v != null
+                },
+                {
+                    "l=|logging=", "Optional logging level: 0 for silent, 1 for verbose, 2 for default, 3 for warning, 4 for error; both numeric and text (case insensitive) value recognized.",
+                    v => logFormatString = v
                 }
             };
 
@@ -155,7 +171,7 @@ namespace ThermoRawFileParser
                 }
 
 
-                if (parameters.outputDirectory != null && !Directory.Exists(parameters.outputDirectory))
+                if (outputDirectory != null && !Directory.Exists(outputDirectory))
                 {
                     throw new OptionException(
                         "specify a valid output location",
@@ -169,20 +185,64 @@ namespace ThermoRawFileParser
                         "-i, --input xor -d, --input_directory");
                 }
 
+                if (outputFile != null && outputDirectory != null)
+                {
+                    throw new OptionException(
+                        "cannot use an output file and an output directory simultaneously",
+                        "-b, --output_file; -o, --output");
+                }
+
                 if (singleFile != null)
                 {
                     parameters.rawFileList.Add(Path.GetFullPath(singleFile));
+                    
+                    if (outputFile != null)
+                    {
+                        parameters.outputFileList.Add(Path.GetFullPath(outputFile));
+                    }
+                    else if (outputDirectory != null)
+                    {
+                        parameters.outputFileList.Add(Path.Combine(outputDirectory ?? throw new NoNullAllowedException("Output directory cannot be null"),
+                                                        Path.GetFileNameWithoutExtension(singleFile) + ".json"));
+                    }
+                    else
+                    {
+                        parameters.outputFileList.Add(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(singleFile)),
+                                                        Path.GetFileNameWithoutExtension(singleFile) + ".json"));
+                    }
                 }
                 else
                 {
+                    if (outputFile != null)
+                    {
+                        throw new OptionException("Cannot use single output file to proceess a directory, use directory output instead", "-o, --output");
+                    }
+                    else if (outputDirectory != null)
+                    {
+                        outputDirectory = Path.GetFullPath(outputDirectory);
+                    }
+                    else
+                    {
+                        outputDirectory = Path.GetFullPath(fileDirectory);
+                    }
+
                     var directoryInfo = new DirectoryInfo(Path.GetFullPath(fileDirectory));
                     var files = directoryInfo.GetFiles("*", SearchOption.TopDirectoryOnly)
                         .Where(f => f.Extension.ToLower() == ".raw").ToArray<FileInfo>();
                     foreach (var file in files)
                     {
                         parameters.rawFileList.Add(file.FullName);
+                        parameters.outputFileList.Add(Path.Combine(outputDirectory ?? throw new NoNullAllowedException("Output directory cannot be null"),
+                                                    Path.GetFileNameWithoutExtension(file.Name) + ".json"));
                     }
                 }
+
+                if (logFormatString != null)
+                {
+                    parameters.LogFormat = (LogFormat)ParseToEnum(typeof(LogFormat), logFormatString, "-l, --logging");
+                }
+
+                if (parameters.stdout) parameters.LogFormat = LogFormat.SILENT; //switch off logging in stdout
             }
             catch (OptionException optionException)
             {
@@ -206,10 +266,39 @@ namespace ThermoRawFileParser
             var exitCode = 1;
             try
             {
-                // execute the xic commands
-                XicExecutor.run(parameters);
+                switch (parameters.LogFormat)
+                {
+                    case LogFormat.VERBOSE:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Debug;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                    case LogFormat.SILENT:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Off;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                    case LogFormat.WARNING:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Warn;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                    case LogFormat.ERROR:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Error;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                }
 
-                exitCode = 0;
+                XicExecutor.Run(parameters);
+
+                Log.Info($"Processing completed {parameters.Errors} errors, {parameters.Warnings} warnings");
+
+                exitCode = parameters.Vigilant ? parameters.Errors + parameters.Warnings : parameters.Errors;
             }
             catch (Exception ex)
             {
@@ -231,6 +320,7 @@ namespace ThermoRawFileParser
 
         private static void SpectrumQueryParametersParsing(string[] args)
         {
+            string logFormatString = null;
             QueryParameters parameters = new QueryParameters();
             var optionSet = new OptionSet
             {
@@ -248,7 +338,7 @@ namespace ThermoRawFileParser
                     v => parameters.scans = v
                 },
                 {
-                    "b=|output_file",
+                    "b=|output=",
                     "The output file. Specifying none writes the output file to the input file parent directory.",
                     v => parameters.outputFile = v
                 },
@@ -261,6 +351,14 @@ namespace ThermoRawFileParser
                     "s|stdout",
                     "Pipes the output into standard output. Logging is being turned off",
                     v => parameters.stdout = v != null
+                },
+                {
+                   "w|warningsAreErrors", "Return non-zero exit code for warnings; default only for errors",
+                    v => parameters.Vigilant = v != null
+                },
+                {
+                    "l=|logging=", "Optional logging level: 0 for silent, 1 for verbose, 2 for default, 3 for warning, 4 for error; both numeric and text (case insensitive) value recognized.",
+                    v => logFormatString = v
                 }
             };
 
@@ -301,6 +399,13 @@ namespace ThermoRawFileParser
                         "specify a valid scan range",
                         "-s, --scans");
                 }
+
+                if (logFormatString != null)
+                {
+                    parameters.LogFormat = (LogFormat)ParseToEnum(typeof(LogFormat), logFormatString, "-l, --logging");
+                }
+
+                if (parameters.stdout) parameters.LogFormat = LogFormat.SILENT; //switch off logging in stdout
             }
             catch (OptionException optionException)
             {
@@ -324,8 +429,39 @@ namespace ThermoRawFileParser
             var exitCode = 1;
             try
             {
+                switch (parameters.LogFormat)
+                {
+                    case LogFormat.VERBOSE:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Debug;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                    case LogFormat.SILENT:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Off;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                    case LogFormat.WARNING:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Warn;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                    case LogFormat.ERROR:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Error;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                }
+
                 QueryExecutor.Run(parameters);
-                exitCode = 0;
+
+                Log.Info($"Processing completed {parameters.Errors} errors, {parameters.Warnings} warnings");
+
+                exitCode = parameters.Vigilant ? parameters.Errors + parameters.Warnings : parameters.Errors;
             }
             catch (Exception ex)
             {
@@ -374,14 +510,14 @@ namespace ThermoRawFileParser
                     v => parseInput.RawDirectoryPath = v
                 },
                 {
-                    "o=|output=",
-                    "The output directory. Specify this or an output file -b. Specifying neither writes to the input directory.",
-                    v => parseInput.OutputDirectory = v
-                },
-                {
-                    "b=|output_file",
+                    "b=|output=",
                     "The output file. Specify this or an output directory -o. Specifying neither writes to the input directory.",
                     v => parseInput.OutputFile = v
+                },
+                {
+                    "o=|output_directory=",
+                    "The output directory. Specify this or an output file -b. Specifying neither writes to the input directory.",
+                    v => parseInput.OutputDirectory = v
                 },
                 {
                     "s|stdout",
@@ -390,11 +526,11 @@ namespace ThermoRawFileParser
                 },
                 {
                     "f=|format=",
-                    "The spectra output format: 0 for MGF, 1 for mzML, 2 for indexed mzML, 3 for Parquet. Defaults to indexed mzML if no format is specified.",
+                    "The spectra output format: 0 for MGF, 1 for mzML, 2 for indexed mzML, 3 for Parquet, 4 for None (no output); both numeric and text (case insensitive) value recognized. Defaults to indexed mzML if no format is specified.",
                     v => outputFormatString = v
                 },
                 {
-                    "m=|metadata=", "The metadata output format: 0 for JSON, 1 for TXT.",
+                    "m=|metadata=", "The metadata output format: 0 for JSON, 1 for TXT, 2 for None (no output); both numeric and text (case insensitive) value recognized. Defaults to None",
                     v => metadataFormatString = v
                 },
                 {
@@ -422,7 +558,7 @@ namespace ThermoRawFileParser
                     v => parseInput.AllDetectors = v != null
                 },
                 {
-                    "l=|logging=", "Optional logging level: 0 for silent, 1 for verbose.",
+                    "l=|logging=", "Optional logging level: 0 for silent, 1 for verbose, 2 for default, 3 for warning, 4 for error; both numeric and text (case insensitive) value recognized.",
                     v => logFormatString = v
                 },
                 {
@@ -430,7 +566,7 @@ namespace ThermoRawFileParser
                     v => parseInput.IgnoreInstrumentErrors = v != null
                 },
                 {
-                    "x|includeExceptionData", "Include reference and exception data",
+                    "x|excludeExceptionData", "Exclude reference and exception data",
                     v => parseInput.ExData = v != null
                 },
                 {
@@ -442,6 +578,14 @@ namespace ThermoRawFileParser
                     "P|mgfPrecursor",
                     "Include precursor scan number in MGF file TITLE",
                     v => parseInput.MgfPrecursor = v != null
+                },
+                {
+                    "N|noiseData", "Include noise data in mzML output",
+                    v => parseInput.NoiseData = v != null
+                },
+                {
+                  "w|warningsAreErrors", "Return non-zero exit code for warnings; default only for errors",
+                    v => parseInput.Vigilant = v != null 
                 },
                 {
                     "u:|s3_url:",
@@ -581,54 +725,12 @@ namespace ThermoRawFileParser
 
                 if (outputFormatString != null)
                 {
-                    int outPutFormatInt;
-                    try
-                    {
-                        outPutFormatInt = int.Parse(outputFormatString);
-                    }
-                    catch (FormatException)
-                    {
-                        throw new OptionException(
-                            "unknown output format value (0 for MGF, 1 for mzML, 2 for indexed mzML, 3 for Parquet)",
-                            "-f, --format");
-                    }
-
-                    if (Enum.IsDefined(typeof(OutputFormat), outPutFormatInt) &&
-                        ((OutputFormat) outPutFormatInt) != OutputFormat.NONE)
-                    {
-                        parseInput.OutputFormat = (OutputFormat) outPutFormatInt;
-                    }
-                    else
-                    {
-                        throw new OptionException(
-                            "unknown output format value (0 for MGF, 1 for mzML, 2 for indexed mzML, 3 for Parquet)",
-                            "-f, --format");
-                    }
+                    parseInput.OutputFormat = (OutputFormat)ParseToEnum(typeof(OutputFormat), outputFormatString, "-f, --format");
                 }
 
                 if (metadataFormatString != null)
                 {
-                    int metadataInt;
-                    try
-                    {
-                        metadataInt = int.Parse(metadataFormatString);
-                    }
-                    catch (FormatException)
-                    {
-                        throw new OptionException("unknown metadata format value (0 for JSON, 1 for TXT)",
-                            "-m, --metadata");
-                    }
-
-                    if (Enum.IsDefined(typeof(MetadataFormat), metadataInt) &&
-                        ((MetadataFormat) metadataInt) != MetadataFormat.NONE)
-                    {
-                        parseInput.MetadataFormat = (MetadataFormat) metadataInt;
-                    }
-                    else
-                    {
-                        throw new OptionException("unknown metadata format value (0 for JSON, 1 for TXT)",
-                            "-m, --metadata");
-                    }
+                    parseInput.MetadataFormat = (MetadataFormat)ParseToEnum(typeof(MetadataFormat), metadataFormatString, "-m, --metadata");
                 }
 
                 if (parseInput.MetadataOutputFile != null && Directory.Exists(parseInput.MetadataOutputFile))
@@ -638,7 +740,7 @@ namespace ThermoRawFileParser
                         "-c, --metadata_output_file");
                 }
 
-                if (parseInput.MetadataOutputFile != null && parseInput.MetadataFormat == MetadataFormat.NONE)
+                if (parseInput.MetadataOutputFile != null && parseInput.MetadataFormat == MetadataFormat.None)
                 {
                     throw new OptionException("specify a metadata format (0 for JSON, 1 for TXT)",
                         "-m, --metadata");
@@ -653,35 +755,18 @@ namespace ThermoRawFileParser
 
                 if (logFormatString != null)
                 {
-                    int logFormatInt;
-                    try
-                    {
-                        logFormatInt = int.Parse(logFormatString);
-                    }
-                    catch (FormatException)
-                    {
-                        throw new OptionException("unknown log format value (0 for silent, 1 for verbose)",
-                            "-l, --logging");
-                    }
-
-                    if (Enum.IsDefined(typeof(LogFormat), logFormatInt))
-                    {
-                        if ((LogFormat) logFormatInt != LogFormat.NONE)
-                        {
-                            parseInput.LogFormat = (LogFormat) logFormatInt;
-                        }
-                    }
-                    else
-                    {
-                        throw new OptionException("unknown log format value (0 for silent, 1 for verbose)",
-                            "-l, --logging");
-                    }
+                    parseInput.LogFormat = (LogFormat)ParseToEnum(typeof(LogFormat), logFormatString, "-l, --logging");
                 }
 
                 if (parseInput.StdOut)
                 {
                     parseInput.LogFormat = LogFormat.SILENT;
+
+                    //use non-indexed mzML with stdout
+                    if (parseInput.OutputFormat == OutputFormat.IndexMzML) parseInput.OutputFormat = OutputFormat.MzML;
                 }
+
+                parseInput.MaxLevel = parseInput.MsLevel.Max();
 
                 if (parseInput.S3Url != null && parseInput.S3AccessKeyId != null &&
                     parseInput.S3SecretAccessKey != null && parseInput.BucketName != null)
@@ -730,11 +815,25 @@ namespace ThermoRawFileParser
                         ((log4net.Repository.Hierarchy.Hierarchy) LogManager.GetRepository())
                             .RaiseConfigurationChanged(EventArgs.Empty);
                         break;
+                    case LogFormat.WARNING:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Warn;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
+                    case LogFormat.ERROR:
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository()).Root.Level =
+                            Level.Error;
+                        ((log4net.Repository.Hierarchy.Hierarchy)LogManager.GetRepository())
+                            .RaiseConfigurationChanged(EventArgs.Empty);
+                        break;
                 }
 
                 RawFileParser.Parse(parseInput);
 
-                exitCode = 0;
+                Log.Info($"Processing completed {parseInput.Errors} errors, {parseInput.Warnings} warnings");
+
+                exitCode = parseInput.Vigilant ? parseInput.Errors + parseInput.Warnings: parseInput.Errors;
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -787,6 +886,49 @@ namespace ThermoRawFileParser
             Console.Error.WriteLine(message);
             optionSet.WriteOptionDescriptions(Console.Error);
             Environment.Exit(-1);
+        }
+
+        private static string GetValidEnumLevels(Type enumType)
+        {
+            List<string> output = new List<string>();
+            foreach (int v in Enum.GetValues(enumType))
+            {
+                output.Add(String.Format("{0} ({1})", Enum.GetName(enumType, v), v));
+            }
+
+            return String.Join("\n", output);
+        }
+
+        private static int ParseToEnum(Type enumType, string formatString, string keyName)
+        {
+            if (int.TryParse(formatString, out var formatInt)) //can be parsed as int
+            {
+                if (Enum.IsDefined(enumType, formatInt))
+                {
+                    return formatInt;
+                }
+                else
+                {
+                    throw new OptionException(
+                    String.Format("unknown format value, the following values recognized (case insensitive)\n{0}", GetValidEnumLevels(enumType)),
+                    keyName);
+                }
+
+            }
+            else //try parse as a string
+            {
+                try
+                {
+                    return (int)Enum.Parse(enumType, formatString, true);
+                }
+
+                catch (Exception)
+                {
+                    throw new OptionException(
+                    String.Format("unknown format value, the following values recognized (case insensitive)\n{0}", GetValidEnumLevels(enumType)),
+                    keyName);
+                }
+            }
         }
 
         private static HashSet<int> ParseMsLevel(string inputString)

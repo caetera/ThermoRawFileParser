@@ -1,14 +1,13 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using log4net;
-using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
-using ThermoRawFileParser.Util;
 
 namespace ThermoRawFileParser.Writer
 {
@@ -21,15 +20,13 @@ namespace ThermoRawFileParser.Writer
         private const string NegativePolarity = "-";
 
         // Filter string
-        private const string FilterStringIsolationMzPattern = @"ms2 (.*?)@";
+        private readonly Regex _filterStringIsolationMzPattern = new Regex(@"ms\d+ (.+?) \[");
 
-        // Precursor scan number for MS2 scans
-        private int _precursorMs1ScanNumber;
+        // Precursor scan number for MSn scans
+        private int _precursorScanNumber;
 
-        // Dictionary with isolation m/z (key) and precursor scan number (value) entries
-        // for reference in the precursor element of an MS3 spectrum
-        private readonly LimitedSizeDictionary<string, int> _isolationMzToPrecursorScanNumberMapping =
-            new LimitedSizeDictionary<string, int>(40);
+        // Precursor scan number (value) and isolation m/z (key) for reference in the precursor element of an MSn spectrum
+        private readonly Dictionary<string, int> _precursorScanNumbers = new Dictionary<string, int>();
 
         public MgfSpectrumWriter(ParseInput parseInput) : base(parseInput)
         {
@@ -39,9 +36,15 @@ namespace ThermoRawFileParser.Writer
         /// <inheritdoc />       
         public override void Write(IRawDataPlus rawFile, int firstScanNumber, int lastScanNumber)
         {
+            if (!rawFile.HasMsData)
+            {
+                throw new RawFileParserException("No MS data in RAW file, no output will be produced");
+            }
+
             ConfigureWriter(".mgf");
             using (Writer)
             {
+
                 Log.Info("Processing " + (lastScanNumber - firstScanNumber + 1) + " scans");
 
                 var lastScanProgress = 0;
@@ -49,7 +52,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     if (ParseInput.LogFormat == LogFormat.DEFAULT)
                     {
-                        var scanProgress = (int) ((double) scanNumber / (lastScanNumber - firstScanNumber + 1) * 100);
+                        var scanProgress = (int)((double)scanNumber / (lastScanNumber - firstScanNumber + 1) * 100);
                         if (scanProgress % ProgressPercentageStep == 0)
                         {
                             if (scanProgress != lastScanProgress)
@@ -59,6 +62,8 @@ namespace ThermoRawFileParser.Writer
                             }
                         }
                     }
+
+                    _precursorScanNumber = 0;
 
                     // Get the scan from the RAW file
                     var scan = Scan.FromFile(rawFile, scanNumber);
@@ -72,47 +77,109 @@ namespace ThermoRawFileParser.Writer
                     // Get the scan event for this scan number
                     var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
 
+                    // Trailer extra data list
+                    ScanTrailer trailerData;
+
+                    try
+                    {
+                        trailerData = new ScanTrailer(rawFile.GetTrailerExtraInformation(scanNumber));
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.WarnFormat("Cannot load trailer infromation for scan {0} due to following exception\n{1}", scanNumber, ex.Message);
+                        ParseInput.NewWarn();
+                        trailerData = new ScanTrailer();
+                    }
+
+                    // Get scan ms level
+                    var msLevel = (int)scanFilter.MSOrder;
+
                     // Construct the precursor reference string for the title 
                     var precursorReference = "";
+
                     if (ParseInput.MgfPrecursor)
                     {
-                        if (scanFilter.MSOrder == MSOrderType.Ms)
+                        if (msLevel == 1)
                         {
                             // Keep track of the MS1 scan number for precursor reference
-                            _precursorMs1ScanNumber = scanNumber;
+                            _precursorScanNumbers[""] = scanNumber;
                         }
                         else
                         {
-                            precursorReference = ConstructPrecursorReference(scanFilter.MSOrder, scanNumber, scanEvent);
+                            // Keep track of scan number and isolation m/z for precursor reference                   
+                            var result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
+                            if (result.Success)
+                            {
+                                if (_precursorScanNumbers.ContainsKey(result.Groups[1].Value))
+                                {
+                                    _precursorScanNumbers.Remove(result.Groups[1].Value);
+                                }
+
+                                _precursorScanNumbers.Add(result.Groups[1].Value, scanNumber);
+                            }
+
+                            //update precursor scan if it is provided in trailer data
+                            var trailerMasterScan = trailerData.AsPositiveInt("Master Scan Number:");
+                            if (trailerMasterScan.HasValue)
+                            {
+                                _precursorScanNumber = trailerMasterScan.Value;
+                            }
+                            else //try getting it from the scan filter
+                            {
+                                var parts = Regex.Split(result.Groups[1].Value, " ");
+
+                                //find the position of the first (from the end) precursor with a different mass 
+                                //to account for possible supplementary activations written in the filter
+                                var lastIonMass = parts.Last().Split('@').First();
+                                int last = parts.Length;
+                                while (last > 0 &&
+                                       parts[last - 1].Split('@').First() == lastIonMass)
+                                {
+                                    last--;
+                                }
+
+                                string parentFilter = String.Join(" ", parts.Take(last));
+                                if (_precursorScanNumbers.ContainsKey(parentFilter))
+                                {
+                                    _precursorScanNumber = _precursorScanNumbers[parentFilter];
+                                }
+                            }
+
+                            if (_precursorScanNumber > 0)
+                            {
+                                precursorReference = ConstructSpectrumTitle((int)Device.MS, 1, _precursorScanNumber);
+                            }
+                            else
+                            {
+                                Log.Error($"Failed finding precursor for {scanNumber}");
+                                ParseInput.NewError();
+                            }
                         }
                     }
 
-                    // Don't include MS1 spectra
-                    if (ParseInput.MsLevel.Contains((int) scanFilter.MSOrder))
+                    if (ParseInput.MsLevel.Contains(msLevel))
                     {
                         var reaction = GetReaction(scanEvent, scanNumber);
 
                         Writer.WriteLine("BEGIN IONS");
                         if (!ParseInput.MgfPrecursor)
                         {
-                            Writer.WriteLine($"TITLE={ConstructSpectrumTitle((int) Device.MS, 1, scanNumber)}");
+                            Writer.WriteLine($"TITLE={ConstructSpectrumTitle((int)Device.MS, 1, scanNumber)}");
                         }
                         else
                         {
                             Writer.WriteLine(
-                                $"TITLE={ConstructSpectrumTitle((int) Device.MS, 1, scanNumber)} [PRECURSOR={precursorReference}]");
+                                $"TITLE={ConstructSpectrumTitle((int)Device.MS, 1, scanNumber)} [PRECURSOR={precursorReference}]");
                         }
 
                         Writer.WriteLine($"SCANS={scanNumber}");
                         Writer.WriteLine(
                             $"RTINSECONDS={(retentionTime * 60).ToString(CultureInfo.InvariantCulture)}");
 
-                        // Trailer extra data list
-                        var trailerData = new ScanTrailer(rawFile.GetTrailerExtraInformation(scanNumber));
                         int? charge = trailerData.AsPositiveInt("Charge State:");
                         double? monoisotopicMz = trailerData.AsDouble("Monoisotopic M/Z:");
                         double? isolationWidth =
-                            trailerData.AsDouble("MS" + (int) scanFilter.MSOrder + " Isolation Width:");
+                            trailerData.AsDouble("MS" + msLevel + " Isolation Width:");
 
                         if (reaction != null)
                         {
@@ -139,23 +206,16 @@ namespace ThermoRawFileParser.Writer
                         // Write the filter string
                         //Writer.WriteLine($"SCANEVENT={scanEvent.ToString()}");
 
-                        if (!ParseInput.NoPeakPicking.Contains((int) scanFilter.MSOrder))
+                        double[] masses;
+                        double[] intensities;
+
+                        if (!ParseInput.NoPeakPicking.Contains(msLevel))
                         {
                             // Check if the scan has a centroid stream
                             if (scan.HasCentroidStream)
                             {
-                                if (scan.CentroidScan.Length > 0)
-                                {
-                                    for (var i = 0; i < scan.CentroidScan.Length; i++)
-                                    {
-                                        Writer.WriteLine(
-                                            scan.CentroidScan.Masses[i].ToString("0.0000000",
-                                                CultureInfo.InvariantCulture)
-                                            + " "
-                                            + scan.CentroidScan.Intensities[i].ToString("0.0000000000",
-                                                CultureInfo.InvariantCulture));
-                                    }
-                                }
+                                masses = scan.CentroidScan.Masses;
+                                intensities = scan.CentroidScan.Intensities;
                             }
                             else // Otherwise take segmented (low res) scan data
                             {
@@ -164,33 +224,29 @@ namespace ThermoRawFileParser.Writer
                                     ? Scan.ToCentroid(scan).SegmentedScan
                                     : scan.SegmentedScan;
 
-                                for (var i = 0; i < segmentedScan.Positions.Length; i++)
-                                {
-                                    Writer.WriteLine(
-                                        segmentedScan.Positions[i].ToString("0.0000000",
-                                            CultureInfo.InvariantCulture)
-                                        + " "
-                                        + segmentedScan.Intensities[i].ToString("0.0000000000",
-                                            CultureInfo.InvariantCulture));
-                                }
+                                masses = segmentedScan.Positions;
+                                intensities = segmentedScan.Intensities;
                             }
                         }
                         else // Use the segmented data as is
                         {
-                            for (var i = 0; i < scan.SegmentedScan.Positions.Length; i++)
+                            masses = scan.SegmentedScan.Positions;
+                            intensities = scan.SegmentedScan.Intensities;
+                        }
+
+                        if (!(masses is null) && masses.Length > 0)
+                        {
+                            Array.Sort(masses, intensities);
+
+                            for (var i = 0; i < masses.Length; i++)
                             {
-                                Writer.WriteLine(
-                                    scan.SegmentedScan.Positions[i].ToString("0.0000000",
-                                        CultureInfo.InvariantCulture)
-                                    + " "
-                                    + scan.SegmentedScan.Intensities[i].ToString("0.0000000000",
-                                        CultureInfo.InvariantCulture));
+                                Writer.WriteLine(String.Format("{0:f5} {1:f3}", masses[i], intensities[i]));
                             }
                         }
 
                         Writer.WriteLine("END IONS");
 
-                        Log.Debug("Spectrum written to file -- SCAN " + scanNumber);
+                        Log.Debug("Spectrum written to file -- SCAN# " + scanNumber);
                     }
                 }
 
@@ -198,50 +254,8 @@ namespace ThermoRawFileParser.Writer
                 {
                     Console.WriteLine();
                 }
+
             }
-        }
-
-        private string ConstructPrecursorReference(MSOrderType msOrder, int scanNumber, IScanEvent scanEvent)
-        {
-            // Precursor reference
-            var precursorReference = "";
-
-            switch (msOrder)
-            {
-                case MSOrderType.Ms2:
-                    // Keep track of the MS2 scan number and isolation m/z for precursor reference                   
-                    var result = Regex.Match(scanEvent.ToString(), FilterStringIsolationMzPattern);
-                    if (result.Success)
-                    {
-                        if (_isolationMzToPrecursorScanNumberMapping.ContainsKey(result.Groups[1].Value))
-                        {
-                            _isolationMzToPrecursorScanNumberMapping.Remove(result.Groups[1].Value);
-                        }
-
-                        _isolationMzToPrecursorScanNumberMapping.Add(result.Groups[1].Value, scanNumber);
-                    }
-
-                    precursorReference = ConstructSpectrumTitle((int) Device.MS, 1, _precursorMs1ScanNumber);
-                    break;
-
-                case MSOrderType.Ms3:
-                    var precursorScanNumber = _isolationMzToPrecursorScanNumberMapping.Keys.FirstOrDefault(
-                        isolationMz => scanEvent.ToString().Contains(isolationMz));
-                    if (!precursorScanNumber.IsNullOrEmpty())
-                    {
-                        precursorReference = ConstructSpectrumTitle((int) Device.MS, 1,
-                            _isolationMzToPrecursorScanNumberMapping[precursorScanNumber]);
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException("Couldn't find a MS2 precursor scan for MS3 scan " +
-                                                            scanEvent);
-                    }
-
-                    break;
-            }
-
-            return precursorReference;
         }
     }
 }
