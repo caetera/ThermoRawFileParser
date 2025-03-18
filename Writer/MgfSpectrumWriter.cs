@@ -1,9 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using log4net;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
@@ -19,14 +16,8 @@ namespace ThermoRawFileParser.Writer
         private const string PositivePolarity = "+";
         private const string NegativePolarity = "-";
 
-        // Filter string
-        private readonly Regex _filterStringIsolationMzPattern = new Regex(@"ms\d+ (.+?) \[");
-
         // Precursor scan number for MSn scans
         private int _precursorScanNumber;
-
-        // Precursor scan number (value) and isolation m/z (key) for reference in the precursor element of an MSn spectrum
-        private readonly Dictionary<string, int> _precursorScanNumbers = new Dictionary<string, int>();
 
         public MgfSpectrumWriter(ParseInput parseInput) : base(parseInput)
         {
@@ -126,23 +117,7 @@ namespace ThermoRawFileParser.Writer
                             }
                             else //try getting it from the scan filter
                             {
-                                var parts = Regex.Split(result.Groups[1].Value, " ");
-
-                                //find the position of the first (from the end) precursor with a different mass 
-                                //to account for possible supplementary activations written in the filter
-                                var lastIonMass = parts.Last().Split('@').First();
-                                int last = parts.Length;
-                                while (last > 0 &&
-                                       parts[last - 1].Split('@').First() == lastIonMass)
-                                {
-                                    last--;
-                                }
-
-                                string parentFilter = String.Join(" ", parts.Take(last));
-                                if (_precursorScanNumbers.ContainsKey(parentFilter))
-                                {
-                                    _precursorScanNumber = _precursorScanNumbers[parentFilter];
-                                }
+                                _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
                             }
 
                             if (_precursorScanNumber > 0)
@@ -151,7 +126,8 @@ namespace ThermoRawFileParser.Writer
                             }
                             else
                             {
-                                Log.Error($"Failed finding precursor for {scanNumber}");
+                                Log.Error($"Cannot find precursor scan for scan# {scanNumber}");
+                                _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), null);
                                 ParseInput.NewError();
                             }
                         }
@@ -203,11 +179,10 @@ namespace ThermoRawFileParser.Writer
                             Writer.WriteLine($"CHARGE={charge}{polarity}");
                         }
 
-                        // Write the filter string
-                        //Writer.WriteLine($"SCANEVENT={scanEvent.ToString()}");
-
                         double[] masses;
                         double[] intensities;
+                        double[] charges = null;
+                        double[] raw_masses; //copy of original mass array used for sorting
 
                         if (!ParseInput.NoPeakPicking.Contains(msLevel))
                         {
@@ -215,7 +190,11 @@ namespace ThermoRawFileParser.Writer
                             if (scan.HasCentroidStream)
                             {
                                 masses = scan.CentroidScan.Masses;
+                                raw_masses = (double[])masses.Clone();
                                 intensities = scan.CentroidScan.Intensities;
+
+                                if (ParseInput.ChargeData)
+                                    charges = scan.CentroidScan.Charges;
                             }
                             else // Otherwise take segmented (low res) scan data
                             {
@@ -225,22 +204,38 @@ namespace ThermoRawFileParser.Writer
                                     : scan.SegmentedScan;
 
                                 masses = segmentedScan.Positions;
+                                raw_masses = (double[])masses.Clone();
                                 intensities = segmentedScan.Intensities;
                             }
                         }
                         else // Use the segmented data as is
                         {
                             masses = scan.SegmentedScan.Positions;
+                            raw_masses = (double[])masses.Clone();
                             intensities = scan.SegmentedScan.Intensities;
                         }
 
                         if (!(masses is null) && masses.Length > 0)
                         {
-                            Array.Sort(masses, intensities);
+                            //Sorting masses and intensities
+                            Array.Sort(masses);
+                            Array.Sort((double[])raw_masses.Clone(), intensities);
 
-                            for (var i = 0; i < masses.Length; i++)
+                            if (!(charges is null) && charges.Length > 0)
                             {
-                                Writer.WriteLine(String.Format("{0:f5} {1:f3}", masses[i], intensities[i]));
+                                //Sorting charges
+                                Array.Sort((double[])raw_masses.Clone(), charges);
+                                for (var i = 0; i < masses.Length; i++)
+                                {
+                                    Writer.WriteLine(String.Format("{0:f5} {1:f3} {2:d}", masses[i], intensities[i], (int)charges[i]));
+                                }
+                            }
+                            else
+                            {
+                                for (var i = 0; i < masses.Length; i++)
+                                {
+                                    Writer.WriteLine(String.Format("{0:f5} {1:f3}", masses[i], intensities[i]));
+                                }
                             }
                         }
 

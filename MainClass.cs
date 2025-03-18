@@ -13,14 +13,16 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Data;
 
+[assembly: log4net.Config.XmlConfigurator()]
+
 namespace ThermoRawFileParser
 {
     public static class MainClass
     {
         private static readonly ILog Log =
-            LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+            LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public const string Version = "1.4.5";
+        public static string Version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
         public static void Main(string[] args)
         {
             // Set Invariant culture as default for all further processing
@@ -125,7 +127,7 @@ namespace ThermoRawFileParser
 
                 if (parameters.help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                     return;
                 }
@@ -253,12 +255,12 @@ namespace ThermoRawFileParser
             {
                 if (parameters.help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                 }
                 else
                 {
-                    ShowHelp("Error - usage is:", null,
+                    ShowHelp("Error - usage is:", new OptionException(),
                         optionSet);
                 }
             }
@@ -374,7 +376,7 @@ namespace ThermoRawFileParser
 
                 if (parameters.help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                     return;
                 }
@@ -416,12 +418,12 @@ namespace ThermoRawFileParser
             {
                 if (parameters.help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                 }
                 else
                 {
-                    ShowHelp("Error - usage is:", null,
+                    ShowHelp("Error - usage is:", new OptionException(),
                         optionSet);
                 }
             }
@@ -497,7 +499,7 @@ namespace ThermoRawFileParser
                     h => help = h != null
                 },
                 {
-                    "version", "Prints out the version of the executable.",
+                    "v|version", "Prints out the version of the executable.",
                     v => version = v != null
                 },
                 {
@@ -584,6 +586,10 @@ namespace ThermoRawFileParser
                     v => parseInput.NoiseData = v != null
                 },
                 {
+                    "C|chargeData", "Include instrument detected charge states in mzML output (only for high resolution centroided data)",
+                    v => parseInput.ChargeData = v != null
+                },
+                {
                   "w|warningsAreErrors", "Return non-zero exit code for warnings; default only for errors",
                     v => parseInput.Vigilant = v != null 
                 },
@@ -623,7 +629,7 @@ namespace ThermoRawFileParser
                 {
                     var helpMessage =
                         $"Usage is {Assembly.GetExecutingAssembly().GetName().Name}.exe [subcommand] [options]\noptional subcommands are xic|query (use [subcommand] -h for more info]):";
-                    ShowHelp(helpMessage, null, optionSet);
+                    ShowHelp(helpMessage, new OptionException(), optionSet);
                     return;
                 }
 
@@ -766,6 +772,9 @@ namespace ThermoRawFileParser
                     if (parseInput.OutputFormat == OutputFormat.IndexMzML) parseInput.OutputFormat = OutputFormat.MzML;
                 }
 
+                // Switch off gzip compression for Parquet
+                if (parseInput.OutputFormat == OutputFormat.Parquet) parseInput.Gzip = false;
+
                 parseInput.MaxLevel = parseInput.MsLevel.Max();
 
                 if (parseInput.S3Url != null && parseInput.S3AccessKeyId != null &&
@@ -788,12 +797,12 @@ namespace ThermoRawFileParser
             {
                 if (help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                 }
                 else
                 {
-                    ShowHelp("Error - usage is:", null,
+                    ShowHelp("Error - usage is:", new OptionException(),
                         optionSet);
                 }
             }
