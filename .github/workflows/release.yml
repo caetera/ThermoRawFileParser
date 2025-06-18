@@ -36,8 +36,10 @@ jobs:
       run: |
         echo "Version: ${{steps.GetVersion.outputs.version}}"
         dotnet publish --configuration Release --runtime linux-x64 main/ThermoRawFileParser.csproj --sc -o publish/linux-x64
+        chmod +x publish/linux-x64/ThermoRawFileParser
         dotnet publish --configuration Release --runtime win-x64 main/ThermoRawFileParser.csproj --sc -o publish/win-x64
         dotnet publish --configuration Release --runtime osx-x64 main/ThermoRawFileParser.csproj --sc -o publish/osx-x64
+        chmod +x publish/osx-x64/ThermoRawFileParser
         dotnet publish --configuration Release --framework net8.0 main/ThermoRawFileParser.csproj -o publish/net8
         
     - name: Zipping Linux standalone
