@@ -57,7 +57,7 @@ jobs:
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: ThermoRawFileParser-${{ github.ref_name }}-linux.zip
+        file: publish/linux-x64/ThermoRawFileParser-${{ github.ref_name }}-linux.zip
         tag: ${{ github.ref }}
         
     - name: Zipping OSX standalone
