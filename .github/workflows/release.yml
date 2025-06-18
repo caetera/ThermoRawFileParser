@@ -43,15 +43,16 @@ jobs:
     - name: Install zip
       uses: montudor/action-zip@v1
 
-    - name: Zip output
-      run: zip -r ThermoRawFileParser-${{ github.ref_name }}-linux.zip *
-      working-directory: publish/linux-x64
-      
-    #- name: Zipping Linux standalone
-    #  uses: vimtor/action-zip@v1.2
-    #  with:
-    #    files: publish/linux-x64
-    #    dest: ThermoRawFileParser-${{ github.ref_name }}-linux.zip
+    - name: Zip artifacts
+      run: |
+        cd publish/linux-x64
+        zip -r ThermoRawFileParser-${{ github.ref_name }}-linux.zip *
+        cd ../win-x64
+        zip -r ThermoRawFileParser-${{ github.ref_name }}-win.zip *
+        cd ../osx-x64
+        zip -r ThermoRawFileParser-${{ github.ref_name }}-osx.zip *
+        cd ../net8
+        zip -r ThermoRawFileParser-${{ github.ref_name }}-net8.zip *
         
     - name: Upload Linux to release
       uses: svenstaro/upload-release-action@v2
@@ -60,42 +61,24 @@ jobs:
         file: publish/linux-x64/ThermoRawFileParser-${{ github.ref_name }}-linux.zip
         tag: ${{ github.ref }}
         
-    - name: Zipping OSX standalone
-      uses: vimtor/action-zip@v1.2
-      with:
-        files: publish/osx-x64
-        dest: ThermoRawFileParser-${{ github.ref_name }}-osx.zip
-
     - name: Upload OSX to release
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: ThermoRawFileParser-${{ github.ref_name }}-osx.zip
+        file: publish/osx-x64/ThermoRawFileParser-${{ github.ref_name }}-osx.zip
         tag: ${{ github.ref }}
-        
-    - name: Zipping Windows standalone
-      uses: vimtor/action-zip@v1.2
-      with:
-        files: publish/win-x64
-        dest: ThermoRawFileParser-${{ github.ref_name }}-win.zip
         
     - name: Upload Windows to release
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: ThermoRawFileParser-${{ github.ref_name }}-win.zip
+        file: publish/win-x64/ThermoRawFileParser-${{ github.ref_name }}-win.zip
         tag: ${{ github.ref }}
-        
-    - name: Zipping framework-based
-      uses: vimtor/action-zip@v1.2
-      with:
-        files: publish/net8
-        dest: ThermoRawFileParser-${{ github.ref_name }}-net8.zip
         
     - name: Upload framework-based to release
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: ThermoRawFileParser-${{ github.ref_name }}-net8.zip
+        file: publish/net8/ThermoRawFileParser-${{ github.ref_name }}-net8.zip
         tag: ${{ github.ref }}
     
