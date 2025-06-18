@@ -36,17 +36,22 @@ jobs:
       run: |
         echo "Version: ${{steps.GetVersion.outputs.version}}"
         dotnet publish --configuration Release --runtime linux-x64 main/ThermoRawFileParser.csproj --sc -o publish/linux-x64
-        chmod +x publish/linux-x64/ThermoRawFileParser
         dotnet publish --configuration Release --runtime win-x64 main/ThermoRawFileParser.csproj --sc -o publish/win-x64
         dotnet publish --configuration Release --runtime osx-x64 main/ThermoRawFileParser.csproj --sc -o publish/osx-x64
-        chmod +x publish/osx-x64/ThermoRawFileParser
         dotnet publish --configuration Release --framework net8.0 main/ThermoRawFileParser.csproj -o publish/net8
-        
-    - name: Zipping Linux standalone
-      uses: vimtor/action-zip@v1.2
-      with:
-        files: publish/linux-x64
-        dest: ThermoRawFileParser-${{ github.ref_name }}-linux.zip
+
+    - name: Install zip
+      uses: montudor/action-zip@v1
+
+    - name: Zip output
+      run: zip -r ThermoRawFileParser-${{ github.ref_name }}-linux.zip *
+      working-directory: publish/linux-x64
+      
+    #- name: Zipping Linux standalone
+    #  uses: vimtor/action-zip@v1.2
+    #  with:
+    #    files: publish/linux-x64
+    #    dest: ThermoRawFileParser-${{ github.ref_name }}-linux.zip
         
     - name: Upload Linux to release
       uses: svenstaro/upload-release-action@v2
