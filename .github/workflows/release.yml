@@ -32,19 +32,13 @@ jobs:
       run: |
         dotnet nuget add source -n ThermoPKG `pwd`/ThermoPKG/Libs/NetCore/Net8
         
-    - name: Publish all
+    - name: Publish all and zip artifacts
       run: |
         echo "Version: ${{steps.GetVersion.outputs.version}}"
         dotnet publish --configuration Release --runtime linux-x64 main/ThermoRawFileParser.csproj --sc -o publish/linux-x64
         dotnet publish --configuration Release --runtime win-x64 main/ThermoRawFileParser.csproj --sc -o publish/win-x64
         dotnet publish --configuration Release --runtime osx-x64 main/ThermoRawFileParser.csproj --sc -o publish/osx-x64
         dotnet publish --configuration Release --framework net8.0 main/ThermoRawFileParser.csproj -o publish/net8
-
-    - name: Install zip
-      uses: montudor/action-zip@v1
-
-    - name: Zip artifacts
-      run: |
         cd publish/linux-x64
         zip -r -q ThermoRawFileParser-${{ github.ref_name }}-linux.zip *
         cd ../win-x64
