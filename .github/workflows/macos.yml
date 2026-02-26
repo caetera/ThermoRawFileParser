@@ -1,0 +1,40 @@
+name: macos
+
+on:
+  workflow_dispatch: 
+  
+jobs:
+  build:
+    
+    runs-on: macos-latest'
+    
+    steps:    
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        path: 'main'
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    
+    - name: Get Thermo packages
+      uses: actions/checkout@v4
+      with:
+        repository: 'thermofisherlsms/RawFileReader'
+        path: 'ThermoPKG'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        sparse-checkout: 'Libs/NetCore/Net8/*.nupkg'
+        sparse-checkout-cone-mode: 'false'
+    
+    - name: Add Thermo packages as NuGet source
+      run: |
+        dotnet nuget add source -n ThermoPKG `pwd`/ThermoPKG/Libs/NetCore/Net8
+        
+    - name: Publish all and zip artifacts
+      run: |
+        dotnet publish --configuration Release --runtime osx-arm64 main/ThermoRawFileParser.csproj --sc -o publish/osx-arm64
+        dotnet publish --configuration Release --framework net8.0 main/ThermoRawFileParser.csproj -o publish/net8
+        publish/osx-arm64/ThermoRawFileParser -i main/ThermoRawFileParserTest/Data/small.RAW
+        dotnet publish/net8/ThermoRawFileParser.dll -i main/ThermoRawFileParserTest/Data/small.RAW
