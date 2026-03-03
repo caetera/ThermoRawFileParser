@@ -35,6 +35,10 @@ jobs:
     - name: Publish all and zip artifacts
       run: |
         dotnet publish --configuration Release --runtime osx-arm64 main/ThermoRawFileParser.csproj --sc -o publish/osx-arm64
-        dotnet publish --configuration Release --framework net8.0 main/ThermoRawFileParser.csproj -o publish/net8
+        xattr -dr com.apple.quarantine publish/osx-arm64
+        xattr publish/osx-arm64/*
         publish/osx-arm64/ThermoRawFileParser -i main/ThermoRawFileParserTest/Data/small.RAW
+        dotnet publish --configuration Release --framework net8.0 main/ThermoRawFileParser.csproj -o publish/net8
+        xattr -dr com.apple.quarantine publish/net8
+        xattr publish/net8/*
         dotnet publish/net8/ThermoRawFileParser.dll -i main/ThermoRawFileParserTest/Data/small.RAW
